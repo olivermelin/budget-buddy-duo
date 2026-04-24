@@ -5,6 +5,7 @@ import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { useBudget } from "@/store/budget-store";
 import { TransactionModal } from "@/components/TransactionModal";
+import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -116,6 +117,7 @@ export function AppShell() {
       </div>
 
       <TransactionModal open={open} onOpenChange={setOpen} />
+      <OfflineIndicator />
     </div>
   );
 }
