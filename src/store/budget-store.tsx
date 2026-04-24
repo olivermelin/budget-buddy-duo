@@ -14,7 +14,7 @@ type Action =
   | { type: "DELETE_CATEGORY"; id: string }
   | { type: "UPDATE_PERSON"; id: string; patch: Partial<Person> }
   | { type: "UPSERT_GOAL"; goal: SavingsGoal }
-  | { type: "DELETE_GOAL"; id: string }
+  | { type: "DELETE_GOAL"; goalId: string }
   | { type: "ADD_GOAL_CONTRIB"; goalId: string; amount: number }
   | { type: "UPDATE_SETTINGS"; patch: Partial<Settings> }
   | { type: "SET_SUB_STATUS"; key: string; status: "active" | "cancelled" }
