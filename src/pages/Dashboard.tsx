@@ -67,7 +67,7 @@ export default function Dashboard() {
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <p className="text-sm text-muted-foreground">{monthLabel(today)}</p>
-          <h1 className="text-3xl md:text-4xl font-display font-bold mt-1">Hej {state.persons[0].name} 👋</h1>
+          <h1 className="text-3xl md:text-4xl font-display font-bold mt-1">Hej {state.persons[0]?.name ?? "där"} <span aria-hidden="true">👋</span></h1>
         </div>
         <Button onClick={() => setOpen(true)} className="hidden md:inline-flex bg-gradient-primary rounded-xl shadow-soft">
           <Plus className="h-4 w-4" /> Lägg till utgift
@@ -75,9 +75,9 @@ export default function Dashboard() {
       </div>
 
       {/* Hero card */}
-      <Card className="relative overflow-hidden border-0 bg-gradient-hero text-primary-foreground p-6 md:p-10 rounded-3xl shadow-elegant animate-in-up">
-        <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-white/5 blur-2xl" />
+      <Card className="relative overflow-hidden border-0 bg-gradient-hero text-white p-6 md:p-10 rounded-3xl shadow-elegant animate-in-up">
+        <div aria-hidden="true" className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
+        <div aria-hidden="true" className="absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-white/5 blur-2xl" />
         <div className="relative">
           <p className="text-sm uppercase tracking-wider opacity-80">Kvar att leva på</p>
           <div className="mt-3 flex items-baseline gap-3 flex-wrap">
@@ -132,7 +132,7 @@ export default function Dashboard() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display font-semibold">Senaste transaktioner</h2>
-          <Link to="/transaktioner" className="text-sm text-primary hover:underline">Visa alla →</Link>
+          <Link to="/transaktioner" className="text-sm text-primary hover:underline" aria-label="Visa alla transaktioner">Visa alla <span aria-hidden="true">→</span></Link>
         </div>
         <Card className="rounded-2xl shadow-soft overflow-hidden divide-y divide-border">
           {recent.length === 0 && <div className="p-6 text-sm text-muted-foreground">Inga transaktioner än.</div>}

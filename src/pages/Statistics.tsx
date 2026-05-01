@@ -58,7 +58,7 @@ export default function Statistics() {
               <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} />
               <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={v => `${Math.round(v / 1000)}k`} />
               <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => sek(v)} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={v => <span style={{ color: "hsl(var(--foreground))" }}>{v}</span>} />
               <Line type="monotone" dataKey="Inkomster" stroke="hsl(var(--success))" strokeWidth={2.5} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="Utgifter" stroke="hsl(var(--destructive))" strokeWidth={2.5} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="Sparande" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 3 }} />
@@ -87,7 +87,7 @@ export default function Statistics() {
                     {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Pie>
                   <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => sek(v)} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} formatter={v => <span style={{ color: "hsl(var(--foreground))" }}>{v}</span>} />
                 </PieChart>
               </ResponsiveContainer>
             )}
@@ -103,7 +103,7 @@ export default function Statistics() {
                 <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} />
                 <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={v => `${Math.round(v / 1000)}k`} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => sek(v)} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} formatter={v => <span style={{ color: "hsl(var(--foreground))" }}>{v}</span>} />
                 <Bar dataKey="Inkomster" fill="hsl(var(--success))" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="Utgifter" fill="hsl(var(--destructive))" radius={[6, 6, 0, 0]} />
               </BarChart>

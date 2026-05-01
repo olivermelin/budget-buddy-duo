@@ -6,15 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText } from "lucide-react";
+import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { exportTransactionsPDF, exportTransactionsXLSX } from "@/lib/export";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Transaction } from "@/types/budget";
 
 export default function Transactions() {
   const { state, dispatch } = useBudget();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Transaction | null>(null);
   const [q, setQ] = useState("");
   const [month, setMonth] = useState<string>("all");
   const [cat, setCat] = useState<string>("all");
@@ -103,33 +105,56 @@ export default function Transactions() {
           const p = personMap[t.payerId];
           return (
             <div key={t.id} className="flex items-center gap-3 p-4 hover:bg-muted/30 group transition">
-              <div
-                className="h-10 w-10 rounded-xl flex items-center justify-center text-lg shrink-0"
-                style={{ backgroundColor: `hsl(${c?.color} / 0.15)` }}
-              >{c?.icon}</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium truncate">{t.description}</div>
-                <div className="text-xs text-muted-foreground">{dateLabel(t.date)} · {p?.name} · {c?.name}</div>
-              </div>
+              <button
+                type="button"
+                onClick={() => setEditing(t)}
+                className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                aria-label={`Redigera ${t.description}`}
+              >
+                <div
+                  className="h-10 w-10 rounded-xl flex items-center justify-center text-lg shrink-0"
+                  style={{ backgroundColor: `hsl(${c?.color} / 0.15)` }}
+                >{c?.icon}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{t.description}</div>
+                  <div className="text-xs text-muted-foreground">{dateLabel(t.date)} · {p?.name} · {c?.name}</div>
+                </div>
+              </button>
               <div className={cn(
                 "font-display font-bold tabular-nums",
                 t.type === "income" ? "text-success" : "text-foreground"
               )}>
                 {t.type === "income" ? "+" : "−"}{sek(t.amount)}
               </div>
-              <Button
-                variant="ghost" size="icon"
-                className="opacity-0 group-hover:opacity-100 transition h-8 w-8 text-muted-foreground hover:text-destructive"
-                onClick={() => { dispatch({ type: "DELETE_TX", id: t.id }); toast.success("Borttagen"); }}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition">
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setEditing(t)}
+                  aria-label={`Redigera ${t.description}`}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  onClick={() => { dispatch({ type: "DELETE_TX", id: t.id }); toast.success("Borttagen"); }}
+                  aria-label={`Ta bort ${t.description}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           );
         })}
       </Card>
 
       <TransactionModal open={open} onOpenChange={setOpen} />
+      <TransactionModal
+        open={!!editing}
+        onOpenChange={v => !v && setEditing(null)}
+        transaction={editing}
+      />
     </div>
   );
 }

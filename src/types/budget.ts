@@ -38,7 +38,8 @@ export interface SavingsGoal {
   target: number;
   saved: number;
   targetDate?: string;
-  contributions: { id: string; date: string; amount: number }[];
+  contributions: { id: string; date: string; amount: number; personId: string }[];
+  snapshots: { id: string; date: string; balance: number; note: string }[];
 }
 
 export interface Subscription {
@@ -59,7 +60,7 @@ export interface Settings {
 
 export interface AppState {
   settings: Settings;
-  persons: [Person, Person];
+  persons: Person[];
   categories: Category[];
   transactions: Transaction[];
   goals: SavingsGoal[];

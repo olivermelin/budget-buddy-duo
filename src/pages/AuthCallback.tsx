@@ -30,7 +30,7 @@ export default function AuthCallback() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-soft">
       <div className="flex flex-col items-center gap-4 animate-fade">
         <div className="h-14 w-14 rounded-2xl bg-gradient-primary flex items-center justify-center shadow-glow">
-          <Wallet className="h-7 w-7 text-primary-foreground" />
+          <Wallet className="h-7 w-7 text-white" />
         </div>
         <p className="text-sm text-muted-foreground">Loggar in…</p>
         <div className="h-1 w-32 bg-secondary rounded-full overflow-hidden">

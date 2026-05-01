@@ -1,17 +1,33 @@
 import { useState } from "react";
 import { useBudget } from "@/store/budget-store";
-import { sek } from "@/lib/format";
+import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, UserPlus, Copy, Check, LogOut } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const ICONS = ["🛒", "🏠", "🚗", "🎬", "🛍️", "📱", "✈️", "✨", "🍽️", "💪", "📚", "🐾", "💊", "🎁"];
+
+const PERSON_COLORS = [
+  "#1e3a5f", // navy
+  "#ec4899", // pink
+  "#10b981", // emerald
+  "#f59e0b", // amber
+  "#8b5cf6", // violet
+  "#f43f5e", // rose
+  "#06b6d4", // cyan
+  "#6366f1", // indigo
+  "#14b8a6", // teal
+  "#f97316", // orange
+];
 
 export default function Settings() {
   const { state, dispatch } = useBudget();
@@ -20,15 +36,16 @@ export default function Settings() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl md:text-4xl font-display font-bold">Inställningar</h1>
-        <p className="text-sm text-muted-foreground mt-1">Skräddarsy BudgetBuddy efter ert hushåll.</p>
+        <p className="text-sm text-muted-foreground mt-1">Skräddarsy BudgetBuddy efter er grupp.</p>
       </div>
 
-      {/* Household */}
+      {/* Group */}
       <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
-        <h2 className="font-display font-semibold">Hushåll</h2>
+        <h2 className="font-display font-semibold">Grupp</h2>
         <div className="space-y-2">
-          <Label>Hushållsnamn</Label>
+          <Label htmlFor="household-name">Gruppnamn</Label>
           <Input
+            id="household-name"
             value={state.settings.householdName}
             onChange={e => dispatch({ type: "UPDATE_SETTINGS", patch: { householdName: e.target.value } })}
             className="rounded-xl"
@@ -36,22 +53,8 @@ export default function Settings() {
         </div>
       </Card>
 
-      {/* Persons */}
-      <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
-        <h2 className="font-display font-semibold">Personer</h2>
-        <div className="grid md:grid-cols-2 gap-4">
-          {state.persons.map(p => (
-            <div key={p.id} className="p-4 rounded-xl bg-muted/40 space-y-3">
-              <div className="space-y-2"><Label>Namn</Label>
-                <Input value={p.name} onChange={e => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { name: e.target.value } })} className="rounded-xl" />
-              </div>
-              <div className="space-y-2"><Label>Månadsinkomst (SEK)</Label>
-                <Input type="number" value={p.income} onChange={e => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { income: parseFloat(e.target.value) || 0 } })} className="rounded-xl" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
+      {/* Members */}
+      <MembersSection />
 
       {/* Theme */}
       <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
@@ -68,6 +71,9 @@ export default function Settings() {
 
       {/* Categories */}
       <CategoriesEditor />
+
+      {/* Account */}
+      <AccountSection />
 
       {/* Danger zone */}
       <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4 border-destructive/20">
@@ -108,6 +114,220 @@ export default function Settings() {
         </div>
       </Card>
     </div>
+  );
+}
+
+function AccountSection() {
+  const { user, signOut, householdId, refreshHousehold } = useAuth();
+  const [leaving, setLeaving] = useState(false);
+
+  const leaveHousehold = async () => {
+    if (!user || !householdId) return;
+    setLeaving(true);
+    const { error } = await supabase
+      .from("household_members")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("household_id", householdId);
+    setLeaving(false);
+    if (error) {
+      toast.error("Kunde inte lämna gruppen", { description: error.message });
+      return;
+    }
+    toast.success("Du har lämnat gruppen");
+    await refreshHousehold();
+    // RequireHousehold will redirect to /onboarding once householdId becomes null
+  };
+
+  return (
+    <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
+      <h2 className="font-display font-semibold">Konto</h2>
+      {user?.email && (
+        <div className="text-sm text-muted-foreground">
+          Inloggad som <span className="text-foreground font-medium">{user.email}</span>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={signOut} className="rounded-xl">
+          <LogOut className="h-4 w-4" /> Logga ut
+        </Button>
+
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" className="rounded-xl text-destructive hover:text-destructive">
+              Lämna gruppen
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent className="rounded-2xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Lämna gruppen?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Du tas bort som medlem och kommer inte längre se gruppens transaktioner, kategorier eller sparmål.
+                Du kan gå med igen senare via en ny inbjudningskod.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={leaving}>Avbryt</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={leaving}
+                onClick={leaveHousehold}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {leaving ? "Lämnar…" : "Lämna gruppen"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </Card>
+  );
+}
+
+function MembersSection() {
+  const { state, dispatch } = useBudget();
+  const { user, householdId } = useAuth();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const generateInvite = async () => {
+    if (!householdId || !user) return;
+    setInviteLoading(true);
+    const code = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+      .map(b => b.toString(36).toUpperCase())
+      .join("")
+      .slice(0, 6);
+    const { error } = await supabase.from("household_invites").insert({
+      household_id: householdId,
+      invite_code: code,
+      created_by: user.id,
+    });
+    setInviteLoading(false);
+    if (error) {
+      toast.error("Kunde inte skapa kod");
+      return;
+    }
+    setInviteCode(code);
+    setCopied(false);
+    setInviteOpen(true);
+  };
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(inviteCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h2 className="font-display font-semibold">Medlemmar</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {state.persons.length} {state.persons.length === 1 ? "medlem" : "medlemmar"} i gruppen
+          </p>
+        </div>
+        <Button
+          size="sm"
+          onClick={generateInvite}
+          disabled={inviteLoading || !householdId}
+          className="rounded-xl"
+        >
+          <UserPlus className="h-4 w-4" /> {inviteLoading ? "Skapar…" : "Bjud in"}
+        </Button>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        {state.persons.map(p => (
+          <div key={p.id} className="p-4 rounded-xl bg-muted/40 space-y-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold shrink-0"
+                style={{ background: p.color }}
+                aria-hidden="true"
+              >
+                {p.name.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <Label htmlFor={`person-name-${p.id}`} className="text-xs">Namn</Label>
+                <Input
+                  id={`person-name-${p.id}`}
+                  value={p.name}
+                  onChange={e => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { name: e.target.value } })}
+                  className="rounded-xl mt-1"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs">Färg</Label>
+              <div role="radiogroup" aria-label={`Färg för ${p.name}`} className="flex flex-wrap gap-1.5">
+                {PERSON_COLORS.map(c => {
+                  const selected = p.color.toLowerCase() === c.toLowerCase();
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      aria-label={`Välj färg ${c}`}
+                      onClick={() => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { color: c } })}
+                      className={cn(
+                        "h-7 w-7 rounded-full transition ring-offset-2 ring-offset-muted/40",
+                        selected ? "ring-2 ring-foreground scale-110" : "hover:scale-105",
+                      )}
+                      style={{ background: c }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`person-income-${p.id}`} className="text-xs">Månadsinkomst (SEK)</Label>
+              <Input
+                id={`person-income-${p.id}`}
+                type="number"
+                value={p.income}
+                onChange={e => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { income: parseFloat(e.target.value) || 0 } })}
+                className="rounded-xl"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {state.persons.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-4">Inga medlemmar än.</p>
+      )}
+
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent className="rounded-2xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display">Bjud in medlem</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Dela koden med personen du vill bjuda in. Den är giltig i 7 dagar.
+            </p>
+            <div className="bg-secondary rounded-xl p-4 flex items-center justify-between gap-3">
+              <span className="font-mono font-bold text-2xl tracking-[0.2em] text-foreground">{inviteCode}</span>
+              <button
+                onClick={copyCode}
+                className="h-9 w-9 rounded-lg border border-border bg-card flex items-center justify-center hover:bg-accent transition-colors shrink-0"
+                aria-label="Kopiera kod"
+              >
+                {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+              </button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setInviteOpen(false)} className="bg-gradient-primary rounded-xl w-full">Klar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }
 
@@ -156,7 +376,7 @@ function CategoriesEditor() {
             <div className="flex items-center gap-2 ml-auto">
               <span className="text-xs text-muted-foreground hidden md:inline">Fast</span>
               <Switch checked={!!c.isFixed} onCheckedChange={v => dispatch({ type: "UPSERT_CATEGORY", cat: { ...c, isFixed: v } })} />
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => dispatch({ type: "DELETE_CATEGORY", id: c.id })}>
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => dispatch({ type: "DELETE_CATEGORY", id: c.id })} aria-label={`Ta bort kategori ${c.name}`}>
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>

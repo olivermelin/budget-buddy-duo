@@ -78,28 +78,62 @@ export function detectSubscriptions(state: AppState): Subscription[] {
   return subs.sort((a, b) => b.amount - a.amount);
 }
 
+export interface Settlement {
+  from: string; // personId who owes
+  to: string;   // personId who receives
+  amount: number;
+}
+
 export function calcSplit(state: AppState, year: number, month: number) {
   const txs = state.transactions.filter(t => t.type === "expense" && inMonth(t.date, year, month));
   const total = txs.reduce((s, t) => s + t.amount, 0);
-  const [p1, p2] = state.persons;
-  const paid: Record<string, number> = { [p1.id]: 0, [p2.id]: 0 };
-  for (const t of txs) paid[t.payerId] = (paid[t.payerId] || 0) + t.amount;
+  const persons = state.persons;
 
-  let share1: number, share2: number;
-  if (state.settings.splitMode === "50/50") {
-    share1 = total / 2;
-    share2 = total / 2;
-  } else {
-    const totalIncome = p1.income + p2.income || 1;
-    share1 = total * (p1.income / totalIncome);
-    share2 = total * (p2.income / totalIncome);
+  const paid: Record<string, number> = {};
+  for (const p of persons) paid[p.id] = 0;
+  for (const t of txs) {
+    if (paid[t.payerId] !== undefined) paid[t.payerId] += t.amount;
   }
-  // Diff: positive = personen ligger ute med pengar (har betalat mer än sin andel)
-  const diff1 = paid[p1.id] - share1;
-  const diff2 = paid[p2.id] - share2;
-  // Settlement: if diff1 > 0, p2 owes p1
-  const settlement = Math.abs(diff1);
-  const owesFrom = diff1 > 0 ? p2.id : p1.id;
-  const owesTo = diff1 > 0 ? p1.id : p2.id;
-  return { total, paid, share: { [p1.id]: share1, [p2.id]: share2 }, diff: { [p1.id]: diff1, [p2.id]: diff2 }, settlement, owesFrom, owesTo };
+
+  const share: Record<string, number> = {};
+  if (persons.length === 0) {
+    return { total, paid, share, diff: {}, settlements: [] as Settlement[] };
+  }
+
+  if (state.settings.splitMode === "50/50") {
+    const equal = total / persons.length;
+    for (const p of persons) share[p.id] = equal;
+  } else {
+    const totalIncome = persons.reduce((s, p) => s + p.income, 0) || 1;
+    for (const p of persons) share[p.id] = total * (p.income / totalIncome);
+  }
+
+  // Diff: positive = ligger ute med pengar (har betalat mer än sin andel)
+  const diff: Record<string, number> = {};
+  for (const p of persons) diff[p.id] = (paid[p.id] ?? 0) - share[p.id];
+
+  // Greedy pairwise settlement: largest debtor pays largest creditor each step
+  const creditors = persons
+    .map(p => ({ id: p.id, amount: diff[p.id] }))
+    .filter(x => x.amount > 0.5)
+    .sort((a, b) => b.amount - a.amount);
+  const debtors = persons
+    .map(p => ({ id: p.id, amount: -diff[p.id] }))
+    .filter(x => x.amount > 0.5)
+    .sort((a, b) => b.amount - a.amount);
+
+  const settlements: Settlement[] = [];
+  let ci = 0, di = 0;
+  while (ci < creditors.length && di < debtors.length) {
+    const pay = Math.min(creditors[ci].amount, debtors[di].amount);
+    if (pay > 0.5) {
+      settlements.push({ from: debtors[di].id, to: creditors[ci].id, amount: pay });
+    }
+    creditors[ci].amount -= pay;
+    debtors[di].amount -= pay;
+    if (creditors[ci].amount < 0.5) ci++;
+    if (debtors[di].amount < 0.5) di++;
+  }
+
+  return { total, paid, share, diff, settlements };
 }

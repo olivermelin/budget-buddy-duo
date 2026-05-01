@@ -155,7 +155,7 @@
 }
 
 @layer utilities {
-  .bg-gradient-primary { background: var(--gradient-primary); }
+  .bg-gradient-primary { background: var(--gradient-primary); color: white; }
   .bg-gradient-success { background: var(--gradient-success); }
   .bg-gradient-hero { background: var(--gradient-hero); }
   .bg-gradient-soft { background: var(--gradient-soft); }
