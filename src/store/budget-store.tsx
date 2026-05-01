@@ -7,7 +7,7 @@ import { Sentry } from "@/lib/sentry";
 import { useAuth } from "@/context/AuthContext";
 
 const STORAGE_KEY = "budgetbuddy.v1";
-const uid = () => Math.random().toString(36).slice(2, 10);
+const uid = () => crypto.randomUUID();
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
@@ -20,7 +20,9 @@ type Action =
   | { type: "UPDATE_PERSON"; id: string; patch: Partial<Person> }
   | { type: "UPSERT_GOAL"; goal: SavingsGoal }
   | { type: "DELETE_GOAL"; goalId: string }
-  | { type: "ADD_GOAL_CONTRIB"; goalId: string; amount: number }
+  | { type: "ADD_GOAL_CONTRIB"; goalId: string; amount: number; personId: string }
+  | { type: "ADD_GOAL_SNAPSHOT"; goalId: string; balance: number; date: string; note: string }
+  | { type: "DELETE_GOAL_SNAPSHOT"; goalId: string; snapshotId: string }
   | { type: "UPDATE_SETTINGS"; patch: Partial<Settings> }
   | { type: "SET_SUB_STATUS"; key: string; status: "active" | "cancelled" }
   | { type: "RESET" }
@@ -44,7 +46,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "DELETE_CATEGORY":
       return { ...state, categories: state.categories.filter(c => c.id !== action.id) };
     case "UPDATE_PERSON":
-      return { ...state, persons: state.persons.map(p => p.id === action.id ? { ...p, ...action.patch } : p) as [Person, Person] };
+      return { ...state, persons: state.persons.map(p => p.id === action.id ? { ...p, ...action.patch } : p) };
     case "UPSERT_GOAL": {
       const exists = state.goals.find(g => g.id === action.goal.id);
       return { ...state, goals: exists ? state.goals.map(g => g.id === action.goal.id ? action.goal : g) : [...state.goals, action.goal] };
@@ -57,7 +59,24 @@ function reducer(state: AppState, action: Action): AppState {
         goals: state.goals.map(g => g.id === action.goalId ? {
           ...g,
           saved: g.saved + action.amount,
-          contributions: [{ id: uid(), date: new Date().toISOString(), amount: action.amount }, ...g.contributions],
+          contributions: [{ id: uid(), date: new Date().toISOString(), amount: action.amount, personId: action.personId }, ...g.contributions],
+        } : g),
+      };
+    case "ADD_GOAL_SNAPSHOT":
+      return {
+        ...state,
+        goals: state.goals.map(g => g.id === action.goalId ? {
+          ...g,
+          saved: action.balance,
+          snapshots: [{ id: uid(), date: action.date, balance: action.balance, note: action.note }, ...(g.snapshots ?? [])],
+        } : g),
+      };
+    case "DELETE_GOAL_SNAPSHOT":
+      return {
+        ...state,
+        goals: state.goals.map(g => g.id === action.goalId ? {
+          ...g,
+          snapshots: (g.snapshots ?? []).filter(s => s.id !== action.snapshotId),
         } : g),
       };
     case "UPDATE_SETTINGS":
@@ -82,7 +101,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     supabase.from("household_members").select("*").eq("household_id", householdId),
     supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order"),
     supabase.from("transactions").select("*").eq("household_id", householdId).order("date", { ascending: false }),
-    supabase.from("savings_goals").select("*, savings_contributions(*)").eq("household_id", householdId),
+    supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId),
     supabase.from("subscription_overrides").select("*").eq("household_id", householdId),
   ]);
 
@@ -92,18 +111,16 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
   const goals = (goalRes.data ?? []) as Record<string, unknown>[];
   const overrides = (overRes.data ?? []) as Record<string, unknown>[];
 
-  const persons: [Person, Person] = (() => {
-    const mapped = members.map((m) => ({
-      id: m.user_id as string,
-      name: m.display_name as string,
-      color: m.person_color as string,
-      income: m.income_monthly as number,
-    }));
-    while (mapped.length < 2) {
-      mapped.push({ id: `placeholder-${mapped.length}`, name: `Person ${mapped.length + 1}`, color: "#94a3b8", income: 0 });
-    }
-    return [mapped[0], mapped[1]] as [Person, Person];
-  })();
+  const persons: Person[] = members.map((m) => ({
+    id: m.user_id as string,
+    name: m.display_name as string,
+    color: m.person_color as string,
+    income: m.income_monthly as number,
+  }));
+  // If user is alone in household, ensure at least themselves shows up
+  if (persons.length === 0) {
+    persons.push({ id: `placeholder-0`, name: "Person 1", color: "#94a3b8", income: 0 });
+  }
 
   const categories: Category[] = cats.map((c) => ({
     id: c.id as string,
@@ -136,7 +153,14 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
       id: c.id as string,
       date: c.date as string,
       amount: c.amount as number,
+      personId: (c.user_id ?? "") as string,
     })),
+    snapshots: ((g.savings_snapshots ?? []) as Record<string, unknown>[]).map((s) => ({
+      id: s.id as string,
+      date: s.date as string,
+      balance: s.balance as number,
+      note: (s.note ?? "") as string,
+    })).sort((a, b) => b.date.localeCompare(a.date)),
   }));
 
   const subscriptionOverrides: Record<string, "active" | "cancelled"> = {};
@@ -237,11 +261,23 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
     case "ADD_GOAL_CONTRIB":
       await supabase.from("savings_contributions").insert({
         goal_id: action.goalId,
-        user_id: userId,
+        user_id: action.personId || userId,
         amount: action.amount,
         date: new Date().toISOString().split("T")[0],
       });
       await supabase.rpc("increment_goal_saved", { gid: action.goalId, delta: action.amount });
+      return;
+    case "ADD_GOAL_SNAPSHOT":
+      await supabase.from("savings_snapshots").insert({
+        goal_id: action.goalId,
+        date: action.date,
+        balance: action.balance,
+        note: action.note,
+      });
+      await supabase.from("savings_goals").update({ saved: action.balance }).eq("id", action.goalId);
+      return;
+    case "DELETE_GOAL_SNAPSHOT":
+      await supabase.from("savings_snapshots").delete().eq("id", action.snapshotId);
       return;
     case "UPDATE_SETTINGS": {
       const patch: Record<string, unknown> = {};
@@ -273,10 +309,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
 
 const emptyState: AppState = {
   settings: { householdName: "", splitMode: "50/50", theme: "system" },
-  persons: [
-    { id: "p1", name: "Person 1", color: "#1e3a5f", income: 0 },
-    { id: "p2", name: "Person 2", color: "#ec4899", income: 0 },
-  ],
+  persons: [],
   categories: [],
   transactions: [],
   goals: [],
@@ -296,12 +329,25 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [storeLoading, setStoreLoading] = useState(true);
   const householdIdRef = useRef(householdId);
   householdIdRef.current = householdId;
+  // Always read the freshest user ID — avoids stale closures after token refresh
+  const userRef = useRef(user?.id);
+  userRef.current = user?.id;
+  // Guard against concurrent reload() calls (e.g. from realtime + retry)
+  const reloadInProgress = useRef(false);
 
   const reload = useCallback(async () => {
+    if (reloadInProgress.current) return;
     const hid = householdIdRef.current;
     if (!hid) return;
-    const appState = await loadHouseholdData(hid);
-    internalDispatch({ type: "HYDRATE", state: appState });
+    reloadInProgress.current = true;
+    try {
+      const appState = await loadHouseholdData(hid);
+      internalDispatch({ type: "HYDRATE", state: appState });
+    } catch (err) {
+      Sentry.captureException(err);
+    } finally {
+      reloadInProgress.current = false;
+    }
   }, []);
 
   // Initial load from Supabase
@@ -310,6 +356,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     setStoreLoading(true);
     loadHouseholdData(householdId)
       .then((appState) => { internalDispatch({ type: "HYDRATE", state: appState }); })
+      .catch((err) => {
+        console.error("[BudgetStore] Initial load failed:", err);
+        Sentry.captureException(err);
+        toast.error("Kunde inte ladda data", { description: "Kontrollera uppkopplingen och ladda om sidan." });
+      })
       .finally(() => setStoreLoading(false));
   }, [householdId]);
 
@@ -321,7 +372,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .channel(`hh-${householdId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "transactions",    filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "categories",      filter: `household_id=eq.${householdId}` }, reload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "savings_goals",   filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "savings_goals",     filter: `household_id=eq.${householdId}` }, reload)
+      // savings_snapshots has no household_id column — covered by savings_goals realtime above
       .on("postgres_changes", { event: "*", schema: "public", table: "household_members", filter: `household_id=eq.${householdId}` }, reload)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -355,7 +407,9 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }, [state.settings.theme]);
 
   const dispatch = useCallback((action: Action) => {
-    // Inject UUID for new transactions so we can forward the same ID to Supabase
+    // Inject UUID for new transactions so the same ID is forwarded to Supabase.
+    // Using the processed action (with a stable UUID) in the retry ensures we
+    // don't generate a second UUID on retry, which could cause duplicates.
     const processed =
       action.type === "ADD_TX" && !action.tx.id
         ? { ...action, tx: { ...action.tx, id: crypto.randomUUID() } }
@@ -363,19 +417,22 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
     internalDispatch(processed);
 
-    if (householdIdRef.current && user?.id) {
-      writeToSupabase(processed, householdIdRef.current, user.id).catch((err) => {
+    const hid = householdIdRef.current;
+    const uid = userRef.current; // always fresh — no stale closure after token refresh
+    if (hid && uid) {
+      writeToSupabase(processed, hid, uid).catch((err) => {
         console.error("[BudgetStore] Supabase write failed:", err);
         Sentry.captureException(err);
         toast.error("Ändringen kunde inte sparas", {
           description: "Kontrollera din uppkoppling och försök igen.",
-          action: { label: "Försök igen", onClick: () => dispatch(action) },
+          // Retry with the same processed action (same UUID) so we never create duplicates
+          action: { label: "Försök igen", onClick: () => dispatch(processed) },
         });
-        // Restore correct state from DB
+        // Restore correct state from DB to undo the optimistic update
         reload();
       });
     }
-  }, [user?.id, reload]);
+  }, [reload]);
 
   const value = useMemo(() => ({ state, dispatch }), [state, dispatch]);
 
@@ -384,7 +441,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       <div className="min-h-screen flex items-center justify-center bg-gradient-soft">
         <div className="flex flex-col items-center gap-4">
           <div className="h-12 w-12 rounded-2xl bg-gradient-primary flex items-center justify-center shadow-glow">
-            <Wallet className="h-6 w-6 text-primary-foreground" />
+            <Wallet className="h-6 w-6 text-white" />
           </div>
           <div className="h-1 w-32 bg-secondary rounded-full overflow-hidden">
             <div className="h-full w-1/2 bg-gradient-primary rounded-full animate-pulse" />

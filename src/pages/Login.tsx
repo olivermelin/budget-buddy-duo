@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 
 const features = [
-  { icon: TrendingUp, label: "Realtidsöversikt", desc: "Se hushållets ekonomi live" },
-  { icon: Users, label: "Parläge", desc: "Dela och fördela utgifter rättvist" },
+  { icon: TrendingUp, label: "Realtidsöversikt", desc: "Se gruppens ekonomi live" },
+  { icon: Users, label: "Delad ekonomi", desc: "Fördela utgifter rättvist mellan medlemmar" },
   { icon: Shield, label: "Säkert & privat", desc: "Data lagras krypterat i EU" },
 ];
 
@@ -26,13 +26,13 @@ export default function Login() {
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
             <div className="h-16 w-16 rounded-3xl bg-gradient-primary flex items-center justify-center shadow-glow mb-4">
-              <Wallet className="h-8 w-8 text-primary-foreground" />
+              <Wallet className="h-8 w-8 text-white" />
             </div>
             <h1 className="font-display font-bold text-3xl text-foreground tracking-tight">
               BudgetBuddy
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Ekonomin för er — tillsammans
+              Ekonomin — tillsammans
             </p>
           </div>
 
@@ -43,7 +43,7 @@ export default function Login() {
                 Välkommen tillbaka
               </h2>
               <p className="text-muted-foreground text-sm mt-1">
-                Logga in för att se ert hushålls ekonomi
+                Logga in för att se er gemensamma ekonomi
               </p>
             </div>
 
@@ -75,8 +75,8 @@ export default function Login() {
 
             <p className="text-center text-xs text-muted-foreground">
               Genom att logga in godkänner du våra{" "}
-              <span className="underline cursor-pointer">villkor</span> och{" "}
-              <span className="underline cursor-pointer">integritetspolicy</span>.
+              <a href="/villkor" className="underline hover:text-foreground transition-colors">villkor</a> och{" "}
+              <a href="/integritetspolicy" className="underline hover:text-foreground transition-colors">integritetspolicy</a>.
             </p>
           </div>
 
@@ -89,7 +89,7 @@ export default function Login() {
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-foreground">{label}</div>
-                  <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">{desc}</div>
+                  <div className="text-xs text-muted-foreground leading-tight mt-0.5">{desc}</div>
                 </div>
               </div>
             ))}

@@ -46,7 +46,7 @@ export default function Budget() {
         </div>
       </div>
 
-      <Card className="p-6 rounded-2xl shadow-soft border-0 bg-gradient-primary text-primary-foreground">
+      <Card className="p-6 rounded-2xl shadow-soft border-0 bg-gradient-primary text-white">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
             <p className="text-sm opacity-80">Total budget</p>
@@ -54,7 +54,14 @@ export default function Budget() {
           </div>
           <div className="text-sm opacity-80">{pct(totalBudget ? totalSpent / totalBudget : 0)} förbrukat</div>
         </div>
-        <div className="mt-4 h-2 bg-white/20 rounded-full overflow-hidden">
+        <div
+          className="mt-4 h-2 bg-white/20 rounded-full overflow-hidden"
+          role="progressbar"
+          aria-label="Total budgetförbrukning"
+          aria-valuenow={Math.round((totalSpent / (totalBudget || 1)) * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
           <div className="h-full bg-white rounded-full transition-all" style={{ width: `${Math.min(100, (totalSpent / totalBudget) * 100)}%` }} />
         </div>
       </Card>
@@ -69,6 +76,10 @@ export default function Budget() {
               key={c.id}
               className="p-5 rounded-2xl shadow-soft border-0 cursor-pointer hover:shadow-elegant transition"
               onClick={() => setDrillId(c.id)}
+              role="button"
+              tabIndex={0}
+              aria-label={`${c.name} – ${sek(spent)} av ${sek(c.budget)}`}
+              onKeyDown={e => (e.key === "Enter" || e.key === " ") && setDrillId(c.id)}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -92,7 +103,14 @@ export default function Budget() {
                   {tone === "warn" && <div className="text-xs text-warning">Nära gränsen</div>}
                 </div>
               </div>
-              <div className="mt-3 h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="mt-3 h-2 bg-muted rounded-full overflow-hidden"
+                role="progressbar"
+                aria-label={`${c.name} budgetförbrukning`}
+                aria-valuenow={Math.round(Math.min(100, ratio * 100))}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
                 <div
                   className={cn("h-full rounded-full transition-all", tone === "ok" ? "bg-success" : tone === "warn" ? "bg-warning" : "bg-destructive")}
                   style={{ width: `${Math.min(100, ratio * 100)}%` }}

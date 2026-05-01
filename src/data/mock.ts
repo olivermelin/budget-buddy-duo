@@ -13,7 +13,7 @@ export const defaultCategories: Category[] = [
   { id: "ovrigt", name: "Övrigt", icon: "✨", color: "215 16% 47%", budget: 1500 },
 ];
 
-export const defaultPersons: [Person, Person] = [
+export const defaultPersons: Person[] = [
   { id: "p1", name: "Alex", color: "222 60% 45%", income: 38000 },
   { id: "p2", name: "Sara", color: "330 70% 55%", income: 34000 },
 ];
@@ -105,29 +105,32 @@ export const defaultGoals: SavingsGoal[] = [
     target: 60000, saved: 43200,
     targetDate: new Date(new Date().getFullYear() + 1, 5, 1).toISOString(),
     contributions: [
-      { id: uid(), date: new Date(Date.now() - 90 * 86400000).toISOString(), amount: 12000 },
-      { id: uid(), date: new Date(Date.now() - 60 * 86400000).toISOString(), amount: 10000 },
-      { id: uid(), date: new Date(Date.now() - 30 * 86400000).toISOString(), amount: 11200 },
-      { id: uid(), date: new Date(Date.now() - 5 * 86400000).toISOString(), amount: 10000 },
+      { id: uid(), date: new Date(Date.now() - 90 * 86400000).toISOString(), amount: 12000, personId: "p1" },
+      { id: uid(), date: new Date(Date.now() - 60 * 86400000).toISOString(), amount: 10000, personId: "p2" },
+      { id: uid(), date: new Date(Date.now() - 30 * 86400000).toISOString(), amount: 11200, personId: "p1" },
+      { id: uid(), date: new Date(Date.now() - 5 * 86400000).toISOString(), amount: 10000, personId: "p2" },
     ],
+    snapshots: [],
   },
   {
     id: uid(), name: "Buffert", icon: "🛡️",
     target: 100000, saved: 64500,
     contributions: [
-      { id: uid(), date: new Date(Date.now() - 120 * 86400000).toISOString(), amount: 20000 },
-      { id: uid(), date: new Date(Date.now() - 60 * 86400000).toISOString(), amount: 22000 },
-      { id: uid(), date: new Date(Date.now() - 20 * 86400000).toISOString(), amount: 22500 },
+      { id: uid(), date: new Date(Date.now() - 120 * 86400000).toISOString(), amount: 20000, personId: "p1" },
+      { id: uid(), date: new Date(Date.now() - 60 * 86400000).toISOString(), amount: 22000, personId: "p2" },
+      { id: uid(), date: new Date(Date.now() - 20 * 86400000).toISOString(), amount: 22500, personId: "p1" },
     ],
+    snapshots: [],
   },
   {
     id: uid(), name: "Renovering kök", icon: "🔨",
     target: 80000, saved: 18000,
     targetDate: new Date(new Date().getFullYear() + 2, 0, 1).toISOString(),
     contributions: [
-      { id: uid(), date: new Date(Date.now() - 45 * 86400000).toISOString(), amount: 8000 },
-      { id: uid(), date: new Date(Date.now() - 10 * 86400000).toISOString(), amount: 10000 },
+      { id: uid(), date: new Date(Date.now() - 45 * 86400000).toISOString(), amount: 8000, personId: "p2" },
+      { id: uid(), date: new Date(Date.now() - 10 * 86400000).toISOString(), amount: 10000, personId: "p1" },
     ],
+    snapshots: [],
   },
 ];
 

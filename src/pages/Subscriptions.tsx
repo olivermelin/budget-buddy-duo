@@ -30,7 +30,7 @@ export default function Subscriptions() {
           <div className="text-xs text-muted-foreground">Aktiva prenumerationer</div>
           <div className="text-2xl font-display font-bold mt-1">{active.length} st</div>
         </Card>
-        <Card className="p-5 rounded-2xl shadow-soft border-0 bg-gradient-primary text-primary-foreground">
+        <Card className="p-5 rounded-2xl shadow-soft border-0 bg-gradient-primary text-white">
           <div className="text-xs opacity-80">Per månad</div>
           <div className="text-2xl font-display font-bold mt-1">{sek(monthly)}</div>
         </Card>

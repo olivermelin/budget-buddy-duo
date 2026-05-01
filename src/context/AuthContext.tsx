@@ -2,55 +2,99 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
+export interface HouseholdSummary {
+  id: string;
+  name: string;
+}
+
 type AuthContextValue = {
   session: Session | null;
   user: User | null;
   loading: boolean;
+  households: HouseholdSummary[];
   householdId: string | null;
   householdLoading: boolean;
   refreshHousehold: () => Promise<void>;
+  switchHousehold: (id: string) => void;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const ACTIVE_HH_KEY = "budgetbuddy.activeHouseholdId";
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [householdId, setHouseholdId] = useState<string | null>(null);
+  const [households, setHouseholds] = useState<HouseholdSummary[]>([]);
+  const [householdId, setHouseholdIdState] = useState<string | null>(null);
   const [householdLoading, setHouseholdLoading] = useState(false);
 
-  const fetchHousehold = useCallback(async (userId: string) => {
+  const persistActive = useCallback((id: string | null) => {
+    try {
+      if (id) localStorage.setItem(ACTIVE_HH_KEY, id);
+      else localStorage.removeItem(ACTIVE_HH_KEY);
+    } catch { /* ignore */ }
+  }, []);
+
+  const fetchHouseholds = useCallback(async (userId: string) => {
     setHouseholdLoading(true);
     const { data } = await supabase
       .from("household_members")
-      .select("household_id")
-      .eq("user_id", userId)
-      .maybeSingle();
-    setHouseholdId(data?.household_id ?? null);
+      .select("household_id, households(name)")
+      .eq("user_id", userId);
+
+    type Row = { household_id: string; households: { name: string } | { name: string }[] | null };
+    const rows = (data ?? []) as unknown as Row[];
+
+    const list: HouseholdSummary[] = rows.map(r => {
+      const h = r.households;
+      const name = Array.isArray(h) ? (h[0]?.name ?? "Grupp") : (h?.name ?? "Grupp");
+      return { id: r.household_id, name };
+    });
+
+    setHouseholds(list);
+
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(ACTIVE_HH_KEY); } catch { /* ignore */ }
+
+    const validSaved = saved && list.some(h => h.id === saved) ? saved : null;
+    const next = validSaved ?? list[0]?.id ?? null;
+
+    setHouseholdIdState(next);
+    persistActive(next);
     setHouseholdLoading(false);
-  }, []);
+  }, [persistActive]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoading(false);
-      if (session) fetchHousehold(session.user.id);
+      if (session) fetchHouseholds(session.user.id);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchHousehold(session.user.id);
-      else setHouseholdId(null);
+      if (session) fetchHouseholds(session.user.id);
+      else {
+        setHouseholds([]);
+        setHouseholdIdState(null);
+        persistActive(null);
+      }
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchHousehold]);
+  }, [fetchHouseholds, persistActive]);
 
   const refreshHousehold = useCallback(async () => {
-    if (session) await fetchHousehold(session.user.id);
-  }, [session, fetchHousehold]);
+    if (session) await fetchHouseholds(session.user.id);
+  }, [session, fetchHouseholds]);
+
+  const switchHousehold = useCallback((id: string) => {
+    setHouseholdIdState(id);
+    persistActive(id);
+  }, [persistActive]);
 
   const signInWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({
@@ -65,7 +109,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, loading, householdId, householdLoading, refreshHousehold, signInWithGoogle, signOut }}
+      value={{
+        session,
+        user: session?.user ?? null,
+        loading,
+        households,
+        householdId,
+        householdLoading,
+        refreshHousehold,
+        switchHousehold,
+        signInWithGoogle,
+        signOut,
+      }}
     >
       {children}
     </AuthContext.Provider>

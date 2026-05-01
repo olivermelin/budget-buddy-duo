@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 type Mode = "choose" | "create" | "join" | "created";
 
 export default function Onboarding() {
-  const { user, signOut, refreshHousehold } = useAuth();
+  const { user, signOut, refreshHousehold, switchHousehold, households } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>("choose");
   const [householdName, setHouseholdName] = useState("");
@@ -19,53 +19,37 @@ export default function Onboarding() {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const hasGroups = households.length > 0;
 
   const handleCreate = async () => {
     if (!householdName.trim() || !user) return;
     setLoading(true);
     setError("");
 
-    // Generate UUID client-side to avoid insert().select() RLS conflict
-    // (SELECT policy requires membership which doesn't exist yet at insert time)
-    const householdId = crypto.randomUUID();
-    const { error: hErr } = await supabase
-      .from("households")
-      .insert({ id: householdId, name: householdName.trim() });
-
-    if (hErr) {
-      setError("Kunde inte skapa hushåll. Försök igen.");
-      setLoading(false);
-      return;
-    }
-
     const displayName =
       user.user_metadata?.full_name ?? user.user_metadata?.name ?? user.email ?? "Person 1";
+    const code = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+      .map(b => b.toString(36).toUpperCase())
+      .join("")
+      .slice(0, 6);
 
-    const { error: mErr } = await supabase.from("household_members").insert({
-      household_id: householdId,
-      user_id: user.id,
+    const { data, error: rpcErr } = await supabase.rpc("create_household_with_owner", {
+      hh_name: householdName.trim(),
       display_name: displayName,
-      role: "owner",
-      person_color: "#1e3a5f",
+      invite_code: code,
+      member_color: "#1e3a5f",
     });
 
-    if (mErr) {
-      setError("Kunde inte lägga till dig i hushållet.");
+    if (rpcErr) {
+      setError("Kunde inte skapa gruppen. Försök igen.");
       setLoading(false);
       return;
     }
-
-    await supabase.rpc("seed_default_categories", { hid: householdId });
-
-    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
-    await supabase.from("household_invites").insert({
-      household_id: householdId,
-      invite_code: code,
-      created_by: user.id,
-    });
 
     setGeneratedCode(code);
     await refreshHousehold();
+    const newId = (data as { household_id?: string } | null)?.household_id;
+    if (newId) switchHousehold(newId);
     setMode("created");
     setLoading(false);
   };
@@ -80,12 +64,14 @@ export default function Onboarding() {
     });
 
     if (rpcErr || !data) {
-      setError(rpcErr?.message ?? "Ogiltig eller utgången inbjudningskod.");
+      // Don't expose raw Supabase error messages (may contain internal constraint names)
+      setError("Ogiltig eller utgången inbjudningskod. Kontrollera koden och försök igen.");
       setLoading(false);
       return;
     }
 
     await refreshHousehold();
+    if (typeof data === "string") switchHousehold(data);
     navigate("/", { replace: true });
   };
 
@@ -100,11 +86,11 @@ export default function Onboarding() {
       <div className="w-full max-w-sm animate-in-up">
         <div className="flex flex-col items-center mb-8">
           <div className="h-14 w-14 rounded-2xl bg-gradient-primary flex items-center justify-center shadow-glow mb-3">
-            <Wallet className="h-7 w-7 text-primary-foreground" />
+            <Wallet className="h-7 w-7 text-white" />
           </div>
           <h1 className="font-display font-bold text-2xl text-foreground tracking-tight">Kom igång</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Hej {user?.user_metadata?.given_name ?? user?.email?.split("@")[0]}! Skapa eller gå med i ett hushåll.
+            Hej {user?.user_metadata?.given_name ?? user?.email?.split("@")[0]}! Skapa eller gå med i en grupp.
           </p>
         </div>
 
@@ -116,11 +102,11 @@ export default function Onboarding() {
                 className="flex items-center gap-4 p-4 rounded-xl border border-border hover:border-primary hover:bg-accent transition-colors text-left group"
               >
                 <div className="h-10 w-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-soft shrink-0">
-                  <Home className="h-5 w-5 text-primary-foreground" />
+                  <Home className="h-5 w-5 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm text-foreground">Skapa nytt hushåll</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">Du är den första — bjud in din partner efteråt</div>
+                  <div className="font-semibold text-sm text-foreground">Skapa ny grupp</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Du är den första — bjud in fler efteråt</div>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
               </button>
@@ -134,7 +120,7 @@ export default function Onboarding() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm text-foreground">Gå med via inbjudningskod</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">Din partner har redan ett hushåll</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Du har fått en kod av någon i gruppen</div>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
               </button>
@@ -144,14 +130,14 @@ export default function Onboarding() {
           {mode === "create" && (
             <div className="flex flex-col gap-5">
               <div>
-                <h2 className="font-display font-semibold text-lg text-foreground">Skapa hushåll</h2>
-                <p className="text-sm text-muted-foreground mt-1">Välj ett namn som ni känner igen.</p>
+                <h2 className="font-display font-semibold text-lg text-foreground">Skapa grupp</h2>
+                <p className="text-sm text-muted-foreground mt-1">Välj ett namn som ni känner igen — t.ex. ert hushåll eller resesällskap.</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="household-name">Hushållsnamn</Label>
+                <Label htmlFor="household-name">Gruppnamn</Label>
                 <Input
                   id="household-name"
-                  placeholder="T.ex. Familjen Andersson"
+                  placeholder="T.ex. Familjen Andersson eller Mallorca-gänget"
                   value={householdName}
                   onChange={(e) => setHouseholdName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleCreate()}
@@ -174,8 +160,8 @@ export default function Onboarding() {
           {mode === "join" && (
             <div className="flex flex-col gap-5">
               <div>
-                <h2 className="font-display font-semibold text-lg text-foreground">Gå med i hushåll</h2>
-                <p className="text-sm text-muted-foreground mt-1">Klistra in koden som din partner delade.</p>
+                <h2 className="font-display font-semibold text-lg text-foreground">Gå med i grupp</h2>
+                <p className="text-sm text-muted-foreground mt-1">Klistra in koden som du fick av någon i gruppen.</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="invite-code">Inbjudningskod</Label>
@@ -205,8 +191,8 @@ export default function Onboarding() {
           {mode === "created" && (
             <div className="flex flex-col gap-5">
               <div>
-                <h2 className="font-display font-semibold text-lg text-foreground">"{householdName}" är skapat!</h2>
-                <p className="text-sm text-muted-foreground mt-1">Dela koden med din partner så kan de gå med.</p>
+                <h2 className="font-display font-semibold text-lg text-foreground">"{householdName}" är skapad!</h2>
+                <p className="text-sm text-muted-foreground mt-1">Dela koden så kan andra gå med i gruppen.</p>
               </div>
               <div className="bg-secondary rounded-xl p-4 flex items-center justify-between gap-3">
                 <span className="font-mono font-bold text-2xl tracking-[0.2em] text-foreground">{generatedCode}</span>
@@ -226,9 +212,19 @@ export default function Onboarding() {
           )}
         </div>
 
-        <button onClick={signOut} className="mt-4 w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors">
-          Logga ut
-        </button>
+        <div className="mt-4 flex items-center justify-center gap-3 text-xs text-muted-foreground">
+          {hasGroups && (
+            <>
+              <button onClick={() => navigate("/", { replace: true })} className="hover:text-foreground transition-colors">
+                Tillbaka till appen
+              </button>
+              <span aria-hidden="true">·</span>
+            </>
+          )}
+          <button onClick={signOut} className="hover:text-foreground transition-colors">
+            Logga ut
+          </button>
+        </div>
       </div>
     </div>
   );
