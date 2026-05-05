@@ -4,7 +4,7 @@ import { lastNMonths, summarizeMonth } from "@/lib/analytics";
 import { sek, pct, monthLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home, Landmark } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
