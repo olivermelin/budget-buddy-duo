@@ -82,13 +82,30 @@ function reducer(state: AppState, action: Action): AppState {
           snapshots: (g.snapshots ?? []).filter(s => s.id !== action.snapshotId),
         } : g),
       };
+    case "UPSERT_LOAN": {
+      const exists = state.loans.find(l => l.id === action.loan.id);
+      return { ...state, loans: exists ? state.loans.map(l => l.id === action.loan.id ? action.loan : l) : [...state.loans, action.loan] };
+    }
+    case "DELETE_LOAN":
+      return { ...state, loans: state.loans.filter(l => l.id !== action.id) };
+    case "ADD_LOAN_PAYMENT": {
+      const pid = action.payment.id ?? uid();
+      return {
+        ...state,
+        loans: state.loans.map(l => l.id === action.loanId ? {
+          ...l,
+          currentBalance: Math.max(0, l.currentBalance - action.payment.amount),
+          payments: [{ ...action.payment, id: pid }, ...l.payments],
+        } : l),
+      };
+    }
     case "UPDATE_SETTINGS":
       return { ...state, settings: { ...state.settings, ...action.patch } };
     case "SET_SUB_STATUS":
       return { ...state, subscriptionOverrides: { ...state.subscriptionOverrides, [action.key]: action.status } };
     case "RESET":
     case "CLEAR":
-      return { ...state, transactions: [], goals: [], subscriptionOverrides: {} };
+      return { ...state, transactions: [], goals: [], loans: [], subscriptionOverrides: {} };
     case "HYDRATE":
       return action.state;
     default:
@@ -326,10 +343,45 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         is_active: action.status === "active",
       }, { onConflict: "household_id,transaction_id" });
       return;
+    case "UPSERT_LOAN":
+      await supabase.from("loans").upsert({
+        id: action.loan.id,
+        household_id: householdId,
+        name: action.loan.name,
+        type: action.loan.type,
+        lender: action.loan.lender,
+        original_amount: action.loan.originalAmount,
+        current_balance: action.loan.currentBalance,
+        interest_rate: action.loan.interestRate,
+        monthly_payment: action.loan.monthlyPayment,
+        monthly_amortization: action.loan.monthlyAmortization,
+        start_date: action.loan.startDate ?? null,
+        end_date: action.loan.endDate ?? null,
+        owner_user_id: action.loan.ownerId ?? null,
+        owner_share: action.loan.ownerShare,
+        icon: action.loan.icon,
+      });
+      return;
+    case "DELETE_LOAN":
+      await supabase.from("loans").delete().eq("id", action.id);
+      return;
+    case "ADD_LOAN_PAYMENT":
+      await supabase.from("loan_payments").insert({
+        id: action.payment.id,
+        loan_id: action.loanId,
+        user_id: action.payment.personId || userId,
+        date: action.payment.date,
+        amount: action.payment.amount,
+        is_extra: action.payment.isExtra,
+        note: action.payment.note,
+      });
+      await supabase.rpc("decrement_loan_balance", { lid: action.loanId, delta: action.payment.amount });
+      return;
     case "CLEAR":
       await Promise.all([
         supabase.from("transactions").delete().eq("household_id", householdId),
         supabase.from("savings_goals").delete().eq("household_id", householdId),
+        supabase.from("loans").delete().eq("household_id", householdId),
         supabase.from("subscription_overrides").delete().eq("household_id", householdId),
       ]);
       return;
@@ -344,6 +396,7 @@ const emptyState: AppState = {
   categories: [],
   transactions: [],
   goals: [],
+  loans: [],
   subscriptionOverrides: {},
 };
 
