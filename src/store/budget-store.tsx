@@ -99,13 +99,14 @@ function reducer(state: AppState, action: Action): AppState {
 // ─── Supabase data loading ────────────────────────────────────────────────────
 
 async function loadHouseholdData(householdId: string): Promise<AppState> {
-  const [hRes, mRes, catRes, txRes, goalRes, overRes] = await Promise.all([
+  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes] = await Promise.all([
     supabase.from("households").select("*").eq("id", householdId).single(),
     supabase.from("household_members").select("*").eq("household_id", householdId),
     supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order"),
     supabase.from("transactions").select("*").eq("household_id", householdId).order("date", { ascending: false }),
     supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId),
     supabase.from("subscription_overrides").select("*").eq("household_id", householdId),
+    supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId),
   ]);
 
   const members = (mRes.data ?? []) as Record<string, unknown>[];
@@ -113,6 +114,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
   const txs = (txRes.data ?? []) as Record<string, unknown>[];
   const goals = (goalRes.data ?? []) as Record<string, unknown>[];
   const overrides = (overRes.data ?? []) as Record<string, unknown>[];
+  const loans = ((loanRes as { data?: unknown }).data ?? []) as Record<string, unknown>[];
 
   const persons: Person[] = members.map((m) => ({
     id: m.user_id as string,
@@ -178,6 +180,31 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     theme = saved?.settings?.theme ?? "system";
   } catch { /* ignore */ }
 
+  const mappedLoans: Loan[] = loans.map((l) => ({
+    id: l.id as string,
+    name: l.name as string,
+    type: l.type as Loan["type"],
+    lender: (l.lender ?? "") as string,
+    originalAmount: Number(l.original_amount ?? 0),
+    currentBalance: Number(l.current_balance ?? 0),
+    interestRate: Number(l.interest_rate ?? 0),
+    monthlyPayment: Number(l.monthly_payment ?? 0),
+    monthlyAmortization: Number(l.monthly_amortization ?? 0),
+    startDate: (l.start_date ?? undefined) as string | undefined,
+    endDate: (l.end_date ?? undefined) as string | undefined,
+    ownerId: (l.owner_user_id ?? null) as string | null,
+    ownerShare: Number(l.owner_share ?? 100),
+    icon: (l.icon ?? "💰") as string,
+    payments: ((l.loan_payments ?? []) as Record<string, unknown>[]).map((p) => ({
+      id: p.id as string,
+      date: p.date as string,
+      amount: Number(p.amount),
+      isExtra: Boolean(p.is_extra),
+      note: (p.note ?? "") as string,
+      personId: (p.user_id ?? "") as string,
+    })).sort((a, b) => b.date.localeCompare(a.date)),
+  }));
+
   return {
     settings: {
       householdName: ((hRes.data as Record<string, unknown> | null)?.name ?? "Mitt hushåll") as string,
@@ -188,6 +215,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     categories,
     transactions,
     goals: mappedGoals,
+    loans: mappedLoans,
     subscriptionOverrides,
   };
 }
