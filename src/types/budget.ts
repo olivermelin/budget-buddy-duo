@@ -93,5 +93,6 @@ export interface AppState {
   categories: Category[];
   transactions: Transaction[];
   goals: SavingsGoal[];
+  loans: Loan[];
   subscriptionOverrides: Record<string, "active" | "cancelled">;
 }

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Wallet } from "lucide-react";
 import { toast } from "sonner";
-import { AppState, Transaction, TransactionType, Category, Person, SavingsGoal, Settings } from "@/types/budget";
+import { AppState, Transaction, TransactionType, Category, Person, SavingsGoal, Settings, Loan, LoanPayment } from "@/types/budget";
 import { supabase } from "@/lib/supabase";
 import { Sentry } from "@/lib/sentry";
 import { useAuth } from "@/context/AuthContext";
@@ -23,6 +23,9 @@ type Action =
   | { type: "ADD_GOAL_CONTRIB"; goalId: string; amount: number; personId: string }
   | { type: "ADD_GOAL_SNAPSHOT"; goalId: string; balance: number; date: string; note: string }
   | { type: "DELETE_GOAL_SNAPSHOT"; goalId: string; snapshotId: string }
+  | { type: "UPSERT_LOAN"; loan: Loan }
+  | { type: "DELETE_LOAN"; id: string }
+  | { type: "ADD_LOAN_PAYMENT"; loanId: string; payment: Omit<LoanPayment, "id"> & { id?: string } }
   | { type: "UPDATE_SETTINGS"; patch: Partial<Settings> }
   | { type: "SET_SUB_STATUS"; key: string; status: "active" | "cancelled" }
   | { type: "RESET" }
