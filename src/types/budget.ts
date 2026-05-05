@@ -52,6 +52,35 @@ export interface Subscription {
   status: "active" | "cancelled";
 }
 
+export type LoanType = "mortgage" | "car" | "student" | "personal" | "credit_card" | "other";
+
+export interface LoanPayment {
+  id: string;
+  date: string;
+  amount: number;
+  isExtra: boolean;
+  note: string;
+  personId: string;
+}
+
+export interface Loan {
+  id: string;
+  name: string;
+  type: LoanType;
+  lender: string;
+  originalAmount: number;
+  currentBalance: number;
+  interestRate: number;       // annual %
+  monthlyPayment: number;     // total monthly
+  monthlyAmortization: number;
+  startDate?: string;
+  endDate?: string;
+  ownerId?: string | null;    // null = shared
+  ownerShare: number;         // % share if shared
+  icon: string;
+  payments: LoanPayment[];
+}
+
 export interface Settings {
   householdName: string;
   splitMode: "50/50" | "income";
