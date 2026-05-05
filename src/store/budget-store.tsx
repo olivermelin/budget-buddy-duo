@@ -459,6 +459,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "savings_goals",     filter: `household_id=eq.${householdId}` }, reload)
       // savings_snapshots has no household_id column — covered by savings_goals realtime above
       .on("postgres_changes", { event: "*", schema: "public", table: "household_members", filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "loans",              filter: `household_id=eq.${householdId}` }, reload)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [householdId, reload]);
