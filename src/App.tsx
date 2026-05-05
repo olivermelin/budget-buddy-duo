@@ -13,6 +13,7 @@ import Budget from "./pages/Budget";
 import Transactions from "./pages/Transactions";
 import CoupleMode from "./pages/CoupleMode";
 import Goals from "./pages/Goals";
+import Loans from "./pages/Loans";
 import Statistics from "./pages/Statistics";
 import YearOverview from "./pages/YearOverview";
 import Subscriptions from "./pages/Subscriptions";
@@ -57,6 +58,7 @@ const App = () => (
                 <Route path="/transaktioner" element={<Transactions />} />
                 <Route path="/parlage" element={<CoupleMode />} />
                 <Route path="/sparmal" element={<Goals />} />
+                <Route path="/lan" element={<Loans />} />
                 <Route path="/statistik" element={<Statistics />} />
                 <Route path="/arsoversikt" element={<YearOverview />} />
                 <Route path="/prenumerationer" element={<Subscriptions />} />
