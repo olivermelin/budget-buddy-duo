@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Wallet } from "lucide-react";
 import { toast } from "sonner";
-import { AppState, Transaction, TransactionType, Category, Person, SavingsGoal, Settings } from "@/types/budget";
+import { AppState, Transaction, TransactionType, Category, Person, SavingsGoal, Settings, Loan, LoanPayment } from "@/types/budget";
 import { supabase } from "@/lib/supabase";
 import { Sentry } from "@/lib/sentry";
 import { useAuth } from "@/context/AuthContext";
@@ -23,6 +23,9 @@ type Action =
   | { type: "ADD_GOAL_CONTRIB"; goalId: string; amount: number; personId: string }
   | { type: "ADD_GOAL_SNAPSHOT"; goalId: string; balance: number; date: string; note: string }
   | { type: "DELETE_GOAL_SNAPSHOT"; goalId: string; snapshotId: string }
+  | { type: "UPSERT_LOAN"; loan: Loan }
+  | { type: "DELETE_LOAN"; id: string }
+  | { type: "ADD_LOAN_PAYMENT"; loanId: string; payment: Omit<LoanPayment, "id"> & { id?: string } }
   | { type: "UPDATE_SETTINGS"; patch: Partial<Settings> }
   | { type: "SET_SUB_STATUS"; key: string; status: "active" | "cancelled" }
   | { type: "RESET" }
@@ -79,13 +82,30 @@ function reducer(state: AppState, action: Action): AppState {
           snapshots: (g.snapshots ?? []).filter(s => s.id !== action.snapshotId),
         } : g),
       };
+    case "UPSERT_LOAN": {
+      const exists = state.loans.find(l => l.id === action.loan.id);
+      return { ...state, loans: exists ? state.loans.map(l => l.id === action.loan.id ? action.loan : l) : [...state.loans, action.loan] };
+    }
+    case "DELETE_LOAN":
+      return { ...state, loans: state.loans.filter(l => l.id !== action.id) };
+    case "ADD_LOAN_PAYMENT": {
+      const pid = action.payment.id ?? uid();
+      return {
+        ...state,
+        loans: state.loans.map(l => l.id === action.loanId ? {
+          ...l,
+          currentBalance: Math.max(0, l.currentBalance - action.payment.amount),
+          payments: [{ ...action.payment, id: pid }, ...l.payments],
+        } : l),
+      };
+    }
     case "UPDATE_SETTINGS":
       return { ...state, settings: { ...state.settings, ...action.patch } };
     case "SET_SUB_STATUS":
       return { ...state, subscriptionOverrides: { ...state.subscriptionOverrides, [action.key]: action.status } };
     case "RESET":
     case "CLEAR":
-      return { ...state, transactions: [], goals: [], subscriptionOverrides: {} };
+      return { ...state, transactions: [], goals: [], loans: [], subscriptionOverrides: {} };
     case "HYDRATE":
       return action.state;
     default:
@@ -96,13 +116,14 @@ function reducer(state: AppState, action: Action): AppState {
 // ─── Supabase data loading ────────────────────────────────────────────────────
 
 async function loadHouseholdData(householdId: string): Promise<AppState> {
-  const [hRes, mRes, catRes, txRes, goalRes, overRes] = await Promise.all([
+  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes] = await Promise.all([
     supabase.from("households").select("*").eq("id", householdId).single(),
     supabase.from("household_members").select("*").eq("household_id", householdId),
     supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order"),
     supabase.from("transactions").select("*").eq("household_id", householdId).order("date", { ascending: false }),
     supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId),
     supabase.from("subscription_overrides").select("*").eq("household_id", householdId),
+    supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId),
   ]);
 
   const members = (mRes.data ?? []) as Record<string, unknown>[];
@@ -110,6 +131,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
   const txs = (txRes.data ?? []) as Record<string, unknown>[];
   const goals = (goalRes.data ?? []) as Record<string, unknown>[];
   const overrides = (overRes.data ?? []) as Record<string, unknown>[];
+  const loans = ((loanRes as { data?: unknown }).data ?? []) as Record<string, unknown>[];
 
   const persons: Person[] = members.map((m) => ({
     id: m.user_id as string,
@@ -175,6 +197,31 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     theme = saved?.settings?.theme ?? "system";
   } catch { /* ignore */ }
 
+  const mappedLoans: Loan[] = loans.map((l) => ({
+    id: l.id as string,
+    name: l.name as string,
+    type: l.type as Loan["type"],
+    lender: (l.lender ?? "") as string,
+    originalAmount: Number(l.original_amount ?? 0),
+    currentBalance: Number(l.current_balance ?? 0),
+    interestRate: Number(l.interest_rate ?? 0),
+    monthlyPayment: Number(l.monthly_payment ?? 0),
+    monthlyAmortization: Number(l.monthly_amortization ?? 0),
+    startDate: (l.start_date ?? undefined) as string | undefined,
+    endDate: (l.end_date ?? undefined) as string | undefined,
+    ownerId: (l.owner_user_id ?? null) as string | null,
+    ownerShare: Number(l.owner_share ?? 100),
+    icon: (l.icon ?? "💰") as string,
+    payments: ((l.loan_payments ?? []) as Record<string, unknown>[]).map((p) => ({
+      id: p.id as string,
+      date: p.date as string,
+      amount: Number(p.amount),
+      isExtra: Boolean(p.is_extra),
+      note: (p.note ?? "") as string,
+      personId: (p.user_id ?? "") as string,
+    })).sort((a, b) => b.date.localeCompare(a.date)),
+  }));
+
   return {
     settings: {
       householdName: ((hRes.data as Record<string, unknown> | null)?.name ?? "Mitt hushåll") as string,
@@ -185,6 +232,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     categories,
     transactions,
     goals: mappedGoals,
+    loans: mappedLoans,
     subscriptionOverrides,
   };
 }
@@ -295,10 +343,45 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         is_active: action.status === "active",
       }, { onConflict: "household_id,transaction_id" });
       return;
+    case "UPSERT_LOAN":
+      await supabase.from("loans").upsert({
+        id: action.loan.id,
+        household_id: householdId,
+        name: action.loan.name,
+        type: action.loan.type,
+        lender: action.loan.lender,
+        original_amount: action.loan.originalAmount,
+        current_balance: action.loan.currentBalance,
+        interest_rate: action.loan.interestRate,
+        monthly_payment: action.loan.monthlyPayment,
+        monthly_amortization: action.loan.monthlyAmortization,
+        start_date: action.loan.startDate ?? null,
+        end_date: action.loan.endDate ?? null,
+        owner_user_id: action.loan.ownerId ?? null,
+        owner_share: action.loan.ownerShare,
+        icon: action.loan.icon,
+      });
+      return;
+    case "DELETE_LOAN":
+      await supabase.from("loans").delete().eq("id", action.id);
+      return;
+    case "ADD_LOAN_PAYMENT":
+      await supabase.from("loan_payments").insert({
+        id: action.payment.id,
+        loan_id: action.loanId,
+        user_id: action.payment.personId || userId,
+        date: action.payment.date,
+        amount: action.payment.amount,
+        is_extra: action.payment.isExtra,
+        note: action.payment.note,
+      });
+      await supabase.rpc("decrement_loan_balance", { lid: action.loanId, delta: action.payment.amount });
+      return;
     case "CLEAR":
       await Promise.all([
         supabase.from("transactions").delete().eq("household_id", householdId),
         supabase.from("savings_goals").delete().eq("household_id", householdId),
+        supabase.from("loans").delete().eq("household_id", householdId),
         supabase.from("subscription_overrides").delete().eq("household_id", householdId),
       ]);
       return;
@@ -313,6 +396,7 @@ const emptyState: AppState = {
   categories: [],
   transactions: [],
   goals: [],
+  loans: [],
   subscriptionOverrides: {},
 };
 
@@ -375,6 +459,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "savings_goals",     filter: `household_id=eq.${householdId}` }, reload)
       // savings_snapshots has no household_id column — covered by savings_goals realtime above
       .on("postgres_changes", { event: "*", schema: "public", table: "household_members", filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "loans",              filter: `household_id=eq.${householdId}` }, reload)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [householdId, reload]);

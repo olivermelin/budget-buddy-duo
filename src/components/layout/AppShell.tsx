@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, PiggyBank, Receipt, Users, Target, BarChart3, CalendarRange, Repeat, Settings, Plus, Moon, Sun, Wallet, LogOut, MoreHorizontal } from "lucide-react";
+import { LayoutDashboard, PiggyBank, Receipt, Users, Target, BarChart3, CalendarRange, Repeat, Settings, Plus, Moon, Sun, Wallet, LogOut, MoreHorizontal, Landmark } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { useBudget } from "@/store/budget-store";
@@ -17,6 +17,7 @@ const nav = [
   { to: "/transaktioner", label: "Transaktioner", icon: Receipt },
   { to: "/parlage", label: "Fördelning", icon: Users },
   { to: "/sparmal", label: "Sparmål", icon: Target },
+  { to: "/lan", label: "Lån", icon: Landmark },
   { to: "/statistik", label: "Statistik", icon: BarChart3 },
   { to: "/arsoversikt", label: "Årsöversikt", icon: CalendarRange },
   { to: "/prenumerationer", label: "Prenumerationer", icon: Repeat },
