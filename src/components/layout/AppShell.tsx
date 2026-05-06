@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, PiggyBank, Receipt, Users, Target, BarChart3, CalendarRange, Repeat, Settings, Plus, Moon, Sun, Wallet, LogOut, MoreHorizontal, Landmark } from "lucide-react";
+import { LayoutDashboard, PiggyBank, Receipt, Users, Target, BarChart3, CalendarRange, Repeat, Settings, Plus, Moon, Sun, Wallet, LogOut, MoreHorizontal, Landmark, Upload } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { useBudget } from "@/store/budget-store";
@@ -15,6 +15,7 @@ const nav = [
   { to: "/", label: "Översikt", icon: LayoutDashboard, end: true },
   { to: "/budget", label: "Budget", icon: PiggyBank },
   { to: "/transaktioner", label: "Transaktioner", icon: Receipt },
+  { to: "/import", label: "Importera", icon: Upload },
   { to: "/parlage", label: "Fördelning", icon: Users },
   { to: "/sparmal", label: "Sparmål", icon: Target },
   { to: "/lan", label: "Lån", icon: Landmark },

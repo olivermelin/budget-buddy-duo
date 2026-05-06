@@ -14,6 +14,7 @@ import Transactions from "./pages/Transactions";
 import CoupleMode from "./pages/CoupleMode";
 import Goals from "./pages/Goals";
 import Loans from "./pages/Loans";
+import Import from "./pages/Import";
 import Statistics from "./pages/Statistics";
 import YearOverview from "./pages/YearOverview";
 import Subscriptions from "./pages/Subscriptions";
@@ -59,6 +60,7 @@ const App = () => (
                 <Route path="/parlage" element={<CoupleMode />} />
                 <Route path="/sparmal" element={<Goals />} />
                 <Route path="/lan" element={<Loans />} />
+                <Route path="/import" element={<Import />} />
                 <Route path="/statistik" element={<Statistics />} />
                 <Route path="/arsoversikt" element={<YearOverview />} />
                 <Route path="/prenumerationer" element={<Subscriptions />} />
