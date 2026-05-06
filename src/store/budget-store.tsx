@@ -68,6 +68,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     target: g.target as number,
     saved: g.saved as number,
     targetDate: (g.target_date ?? undefined) as string | undefined,
+    ownerId: (g.owner_id ?? null) as string | null,
     contributions: ((g.savings_contributions ?? []) as Record<string, unknown>[]).map((c) => ({
       id: c.id as string,
       date: c.date as string,
@@ -210,6 +211,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         target: action.goal.target,
         saved: action.goal.saved,
         target_date: action.goal.targetDate ?? null,
+        owner_id: action.goal.ownerId ?? null,
       });
       return;
     case "DELETE_GOAL":

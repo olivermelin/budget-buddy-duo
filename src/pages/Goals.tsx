@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, Trophy, LineChart as LineChartIcon } from "lucide-react";
+import { Plus, Trash2, Trophy, LineChart as LineChartIcon, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { SavingsGoal } from "@/types/budget";
@@ -16,25 +16,78 @@ import { DatePicker } from "@/components/DatePicker";
 
 const ICONS = ["🎯", "🗾", "🛡️", "🚗", "🏠", "✈️", "💍", "🎓", "🔨", "💻"];
 
+type OwnerFilter = "all" | "shared" | string; // string = person id
+
 export default function Goals() {
   const { state, dispatch } = useBudget();
   const [createOpen, setCreateOpen] = useState(false);
   const [contribFor, setContribFor] = useState<SavingsGoal | null>(null);
   const [snapshotFor, setSnapshotFor] = useState<SavingsGoal | null>(null);
   const [deleteGoalId, setDeleteGoalId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<OwnerFilter>("all");
+
+  const personById = useMemo(
+    () => Object.fromEntries(state.persons.map(p => [p.id, p])),
+    [state.persons],
+  );
+
+  const filteredGoals = useMemo(() => {
+    if (filter === "all") return state.goals;
+    if (filter === "shared") return state.goals.filter(g => !g.ownerId);
+    return state.goals.filter(g => g.ownerId === filter);
+  }, [state.goals, filter]);
+
+  const ownerLabel = (g: SavingsGoal) => {
+    if (!g.ownerId) return "Gemensamt";
+    return personById[g.ownerId]?.name ?? "Okänd";
+  };
+
+  const ownerColor = (g: SavingsGoal) => {
+    if (!g.ownerId) return undefined;
+    return personById[g.ownerId]?.color;
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold">Sparmål</h1>
-          <p className="text-sm text-muted-foreground mt-1">Spara mot drömmar – tillsammans.</p>
+          <p className="text-sm text-muted-foreground mt-1">Spara mot drömmar – tillsammans och var för sig.</p>
         </div>
         <Button onClick={() => setCreateOpen(true)} className="bg-gradient-primary rounded-xl"><Plus className="h-4 w-4" /> Nytt mål</Button>
       </div>
 
+      {/* Filter tabs */}
+      {state.persons.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 p-1 bg-muted rounded-xl w-fit">
+          <button
+            onClick={() => setFilter("all")}
+            className={cn("px-3 py-1.5 rounded-lg text-sm font-medium transition", filter === "all" ? "bg-card shadow-soft" : "text-muted-foreground hover:text-foreground")}
+          >Alla</button>
+          {state.persons.map(p => (
+            <button
+              key={p.id}
+              onClick={() => setFilter(p.id)}
+              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition", filter === p.id ? "bg-card shadow-soft" : "text-muted-foreground hover:text-foreground")}
+            >
+              <span className="h-4 w-4 rounded-full shrink-0 flex items-center justify-center text-[9px] font-bold text-white" style={{ background: p.color }}>
+                {p.name.slice(0, 1).toUpperCase()}
+              </span>
+              {p.name}
+            </button>
+          ))}
+          <button
+            onClick={() => setFilter("shared")}
+            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition", filter === "shared" ? "bg-card shadow-soft" : "text-muted-foreground hover:text-foreground")}
+          >
+            <Users className="h-3.5 w-3.5" />
+            Gemensamt
+          </button>
+        </div>
+      )}
+
       <div className="grid md:grid-cols-2 gap-4">
-        {state.goals.map(g => {
+        {filteredGoals.map(g => {
           const ratio = Math.min(1, g.saved / g.target);
           // Forecast based on contributions — use Math.min to find oldest date regardless of array sort order
           const oldestContribMs = g.contributions.length
@@ -63,7 +116,19 @@ export default function Goals() {
                 <div className="flex items-center gap-3">
                   <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center text-2xl">{g.icon}</div>
                   <div>
-                    <div className="font-display font-semibold text-lg">{g.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-display font-semibold text-lg">{g.name}</span>
+                      <span
+                        className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
+                      >
+                        {ownerColor(g) ? (
+                          <span className="h-2 w-2 rounded-full shrink-0" style={{ background: ownerColor(g) }} />
+                        ) : (
+                          <Users className="h-2.5 w-2.5" />
+                        )}
+                        {ownerLabel(g)}
+                      </span>
+                    </div>
                     <div className="text-xs text-muted-foreground">{sek(g.saved)} av {sek(g.target)}</div>
                   </div>
                 </div>
@@ -147,8 +212,10 @@ export default function Goals() {
             </Card>
           );
         })}
-        {state.goals.length === 0 && (
-          <Card className="md:col-span-2 p-10 text-center text-muted-foreground rounded-2xl">Inga sparmål än. Skapa ditt första!</Card>
+        {filteredGoals.length === 0 && (
+          <Card className="md:col-span-2 p-10 text-center text-muted-foreground rounded-2xl">
+            {state.goals.length === 0 ? "Inga sparmål än. Skapa ditt första!" : "Inga mål matchar filtret."}
+          </Card>
         )}
       </div>
 
@@ -185,11 +252,21 @@ export default function Goals() {
 }
 
 function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const { dispatch } = useBudget();
+  const { state, dispatch } = useBudget();
+  const { user } = useAuth();
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [icon, setIcon] = useState("🎯");
   const [date, setDate] = useState("");
+  const [ownerId, setOwnerId] = useState<string | null>(null); // null = gemensamt
+
+  // Reset form when dialog opens
+  useEffect(() => {
+    if (open) {
+      setName(""); setTarget(""); setDate(""); setIcon("🎯");
+      setOwnerId(null);
+    }
+  }, [open]);
 
   const submit = () => {
     const t = parseFloat(target.replace(",", "."));
@@ -200,12 +277,12 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
         id: Math.random().toString(36).slice(2, 10),
         name: name.trim(), icon, target: t, saved: 0,
         targetDate: date ? new Date(date).toISOString() : undefined,
+        ownerId,
         contributions: [],
         snapshots: [],
       },
     });
     toast.success("Sparmål skapat");
-    setName(""); setTarget(""); setDate(""); setIcon("🎯");
     onOpenChange(false);
   };
 
@@ -225,6 +302,51 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           <div className="space-y-2"><Label>Namn</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="T.ex. Resa till Italien" className="rounded-xl" /></div>
           <div className="space-y-2"><Label>Målsumma (SEK)</Label><Input inputMode="decimal" value={target} onChange={e => setTarget(e.target.value)} onFocus={e => e.target.select()} placeholder="50000" className="rounded-xl" /></div>
           <div className="space-y-2"><Label>Måldatum (valfritt)</Label><DatePicker value={date} onChange={setDate} placeholder="Välj måldatum" className="rounded-xl" /></div>
+
+          {/* Owner selector */}
+          {state.persons.length > 1 && (
+            <div className="space-y-2">
+              <Label>Vems mål?</Label>
+              <div role="radiogroup" aria-label="Vems mål" className="grid gap-2" style={{ gridTemplateColumns: `repeat(${state.persons.length + 1}, minmax(0, 1fr))` }}>
+                {state.persons.map(p => {
+                  const selected = ownerId === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setOwnerId(p.id)}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5 text-xs transition",
+                        selected ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border hover:bg-accent",
+                      )}
+                    >
+                      <span className="h-7 w-7 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white" style={{ background: p.color }}>
+                        {p.name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="font-medium truncate max-w-full">{p.name}</span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={ownerId === null}
+                  onClick={() => setOwnerId(null)}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5 text-xs transition",
+                    ownerId === null ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border hover:bg-accent",
+                  )}
+                >
+                  <span className="h-7 w-7 rounded-full shrink-0 flex items-center justify-center bg-muted">
+                    <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                  </span>
+                  <span className="font-medium">Gemensamt</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Avbryt</Button>

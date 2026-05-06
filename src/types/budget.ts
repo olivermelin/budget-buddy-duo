@@ -38,6 +38,7 @@ export interface SavingsGoal {
   target: number;
   saved: number;
   targetDate?: string;
+  ownerId?: string | null; // null/undefined = gemensamt
   contributions: { id: string; date: string; amount: number; personId: string }[];
   snapshots: { id: string; date: string; balance: number; note: string }[];
 }
