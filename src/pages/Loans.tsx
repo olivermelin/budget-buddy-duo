@@ -14,6 +14,7 @@ import { Plus, Trash2, TrendingDown, AlertTriangle, Banknote, Calendar, Sparkles
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { MonthPicker } from "@/components/MonthPicker";
 
 const LOAN_TYPE_LABEL: Record<LoanType, string> = {
   mortgage: "Bolån",
@@ -568,9 +569,9 @@ function LoanFormDialog({
 
           {/* Löptid */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div className="space-y-1">
               <Label>Startmånad</Label>
-              <Input type="month" value={startMonth} onChange={e => setStartMonth(e.target.value)} />
+              <MonthPicker value={startMonth} onChange={setStartMonth} />
             </div>
             <div>
               <Label>Löptid (månader)</Label>
