@@ -11,6 +11,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     categories: [],
     transactions: [],
     goals: [],
+    loans: [],
     subscriptionOverrides: {},
     ...overrides,
   };
