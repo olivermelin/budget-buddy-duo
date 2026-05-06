@@ -427,21 +427,21 @@ function LoanFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Ursprungligt belopp</Label>
-              <Input inputMode="decimal" value={originalAmount} onChange={(e) => setOriginalAmount(e.target.value)} placeholder="kr" />
+              <Input inputMode="decimal" value={originalAmount} onChange={(e) => setOriginalAmount(e.target.value)} onFocus={e => e.target.select()} placeholder="kr" />
             </div>
             <div>
               <Label>Kvar att betala</Label>
-              <Input inputMode="decimal" value={currentBalance} onChange={(e) => setCurrentBalance(e.target.value)} placeholder="kr" />
+              <Input inputMode="decimal" value={currentBalance} onChange={(e) => setCurrentBalance(e.target.value)} onFocus={e => e.target.select()} placeholder="kr" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Ränta (%)</Label>
-              <Input inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} placeholder="t.ex. 4.25" />
+              <Input inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} onFocus={e => e.target.select()} placeholder="t.ex. 4.25" />
             </div>
             <div>
               <Label>Månadskostnad</Label>
-              <Input inputMode="decimal" value={monthlyPayment} onChange={(e) => setMonthlyPayment(e.target.value)} placeholder="kr/mån" />
+              <Input inputMode="decimal" value={monthlyPayment} onChange={(e) => setMonthlyPayment(e.target.value)} onFocus={e => e.target.select()} placeholder="kr/mån" />
             </div>
           </div>
         </div>
@@ -489,7 +489,7 @@ function PaymentDialog({
             <div className="text-sm text-muted-foreground">{loan.name} · kvar {sek(loan.currentBalance)}</div>
             <div>
               <Label>Belopp</Label>
-              <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="kr" autoFocus />
+              <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} onFocus={e => e.target.select()} placeholder="kr" autoFocus />
             </div>
             {persons.length > 1 && (
               <div>

@@ -222,7 +222,7 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             </div>
           </div>
           <div className="space-y-2"><Label>Namn</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="T.ex. Resa till Italien" className="rounded-xl" /></div>
-          <div className="space-y-2"><Label>Målsumma (SEK)</Label><Input inputMode="decimal" value={target} onChange={e => setTarget(e.target.value)} placeholder="50000" className="rounded-xl" /></div>
+          <div className="space-y-2"><Label>Målsumma (SEK)</Label><Input inputMode="decimal" value={target} onChange={e => setTarget(e.target.value)} onFocus={e => e.target.select()} placeholder="50000" className="rounded-xl" /></div>
           <div className="space-y-2"><Label>Måldatum (valfritt)</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} className="rounded-xl" /></div>
         </div>
         <DialogFooter>
@@ -268,7 +268,7 @@ function ContribDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: (
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="contrib-amount">Belopp att lägga till</Label>
-            <Input id="contrib-amount" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="2000" className="text-2xl h-14 font-display font-bold rounded-xl" autoFocus />
+            <Input id="contrib-amount" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} onFocus={e => e.target.select()} placeholder="2000" className="text-2xl h-14 font-display font-bold rounded-xl" autoFocus />
           </div>
 
           {state.persons.length > 1 && (
@@ -409,6 +409,7 @@ function SnapshotDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: 
               inputMode="decimal"
               value={balance}
               onChange={e => setBalance(e.target.value)}
+              onFocus={e => e.target.select()}
               className="text-2xl h-14 font-display font-bold rounded-xl"
               autoFocus
             />

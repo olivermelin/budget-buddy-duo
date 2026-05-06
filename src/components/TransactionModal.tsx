@@ -115,6 +115,7 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
               inputMode="decimal"
               value={amount}
               onChange={e => setAmount(e.target.value)}
+              onFocus={e => e.target.select()}
               placeholder="0"
               className="text-2xl font-display font-bold h-14 rounded-xl"
               autoFocus

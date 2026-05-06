@@ -294,8 +294,10 @@ function MembersSection() {
               <Input
                 id={`person-income-${p.id}`}
                 type="number"
-                value={p.income}
+                value={p.income || ""}
                 onChange={e => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { income: parseFloat(e.target.value) || 0 } })}
+                onFocus={e => e.target.select()}
+                placeholder="0"
                 className="rounded-xl"
               />
             </div>
@@ -487,11 +489,11 @@ function RecurringEditor() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="rt-amount">Belopp (SEK)</Label>
-                <Input id="rt-amount" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" className="rounded-xl" />
+                <Input id="rt-amount" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} onFocus={e => e.target.select()} placeholder="0" className="rounded-xl" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="rt-day">Dag i månaden</Label>
-                <Input id="rt-day" type="number" min={1} max={31} value={day} onChange={e => setDay(e.target.value)} className="rounded-xl" />
+                <Input id="rt-day" type="number" min={1} max={31} value={day} onChange={e => setDay(e.target.value)} onFocus={e => e.target.select()} className="rounded-xl" />
               </div>
             </div>
 
@@ -587,8 +589,10 @@ function CategoriesEditor() {
             ) : (
               <Input
                 type="number"
-                value={c.budget}
+                value={c.budget || ""}
                 onChange={e => dispatch({ type: "UPSERT_CATEGORY", cat: { ...c, budget: parseFloat(e.target.value) || 0 } })}
+                onFocus={e => e.target.select()}
+                placeholder="0"
                 className="rounded-lg max-w-[120px] h-9"
               />
             )}
@@ -613,7 +617,7 @@ function CategoriesEditor() {
           </div>
           <div className="grid grid-cols-2 gap-2">
             <Input placeholder="Namn" value={name} onChange={e => setName(e.target.value)} className="rounded-xl" />
-            <Input placeholder="Budget SEK" value={budget} onChange={e => setBudget(e.target.value)} type="number" className="rounded-xl" />
+            <Input placeholder="Budget SEK" value={budget} onChange={e => setBudget(e.target.value)} onFocus={e => e.target.select()} type="number" className="rounded-xl" />
           </div>
           <div className="flex gap-2 justify-end">
             <Button variant="ghost" onClick={() => setAdding(false)}>Avbryt</Button>
