@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
-import { lastNMonths, summarizeMonth } from "@/lib/analytics";
+import { lastNMonths, summarizeMonth, buildMonthPlan } from "@/lib/analytics";
 import { sek, pct, monthLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home, Landmark } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home, Landmark, CalendarCheck } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ export default function Dashboard() {
   const cur = useMemo(() => summarizeMonth(state, today.getFullYear(), today.getMonth()), [state]);
   const prevDate = useMemo(() => new Date(today.getFullYear(), today.getMonth() - 1, 1), []);
   const prev = useMemo(() => summarizeMonth(state, prevDate.getFullYear(), prevDate.getMonth()), [state]);
+  const plan = useMemo(() => buildMonthPlan(state, today.getFullYear(), today.getMonth()), [state]);
 
   const recent = useMemo(() => state.transactions.slice(0, 5), [state.transactions]);
   const catMap = useMemo(() => Object.fromEntries(state.categories.map(c => [c.id, c])), [state.categories]);
@@ -105,6 +106,67 @@ export default function Dashboard() {
         <Kpi icon={<Receipt className="h-4 w-4" />} label="Rörliga utgifter" value={sek(cur.variable)} tone="muted" />
         <Kpi icon={<PiggyBank className="h-4 w-4" />} label="Sparande" value={sek(cur.savings)} tone="primary" />
       </div>
+
+      {/* Månadsplan */}
+      {plan.hasRecurring && (
+        <Card className="p-5 md:p-6 rounded-2xl border-0 shadow-soft">
+          <div className="flex items-center gap-2 mb-4">
+            <CalendarCheck className="h-4 w-4 text-primary" />
+            <h2 className="font-display font-semibold">Månadsplan</h2>
+            <span className="ml-auto text-xs text-muted-foreground capitalize">{monthLabel(today)}</span>
+          </div>
+
+          <div className="space-y-3">
+            {/* Inkomster */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-success inline-block" />
+                Planerade inkomster
+              </span>
+              <span className="font-medium text-success tabular-nums">+{sek(plan.plannedIncome)}</span>
+            </div>
+
+            {/* Fasta utgifter */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-muted-foreground inline-block" />
+                Fasta utgifter
+              </span>
+              <span className="font-medium tabular-nums">−{sek(plan.plannedFixed)}</span>
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-dashed" />
+
+            {/* Rörligt att spendera */}
+            <div className="flex items-center justify-between text-sm font-medium">
+              <span>Rörligt att spendera</span>
+              <span className="tabular-nums">{sek(plan.plannedFreeToSpend)}</span>
+            </div>
+
+            {/* Progress bar för rörliga utgifter */}
+            {plan.plannedFreeToSpend > 0 && (
+              <div className="space-y-1.5">
+                <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      plan.spendPercent > 0.9 ? "bg-destructive" : plan.spendPercent > 0.7 ? "bg-warning" : "bg-primary"
+                    )}
+                    style={{ width: `${Math.min(plan.spendPercent * 100, 100)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Spenderat: {sek(plan.actualVariable)} ({pct(plan.spendPercent)})</span>
+                  <span className={cn(plan.remaining < 0 ? "text-destructive font-medium" : "")}>
+                    {plan.remaining >= 0 ? `Kvar: ${sek(plan.remaining)}` : `Överskridet: ${sek(Math.abs(plan.remaining))}`}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Net worth */}
       {(state.goals.length > 0 || state.loans.length > 0) && (() => {

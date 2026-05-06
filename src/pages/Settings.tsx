@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useBudget } from "@/store/budget-store";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -10,10 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, UserPlus, Copy, Check, LogOut, Pencil } from "lucide-react";
+import { Plus, Trash2, UserPlus, Copy, Check, LogOut, Pencil, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { RecurringTransaction } from "@/types/budget";
+import { computeEffectiveBudgets } from "@/lib/analytics";
 
 const ICONS = ["🛒", "🏠", "🚗", "🎬", "🛍️", "📱", "✈️", "✨", "🍽️", "💪", "📚", "🐾", "💊", "🎁"];
 
@@ -542,6 +543,9 @@ function CategoriesEditor() {
   const [budget, setBudget] = useState("");
   const [icon, setIcon] = useState("✨");
 
+  // Budget för fasta kategorier beräknas automatiskt från återkommande transaktioner
+  const effectiveBudgets = useMemo(() => computeEffectiveBudgets(state), [state]);
+
   const add = () => {
     if (!name.trim()) return;
     dispatch({ type: "UPSERT_CATEGORY", cat: {
@@ -558,7 +562,10 @@ function CategoriesEditor() {
   return (
     <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-display font-semibold">Kategorier & budget</h2>
+        <div>
+          <h2 className="font-display font-semibold">Kategorier & budget</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Fasta kategorier beräknas automatiskt från återkommande transaktioner</p>
+        </div>
         <Button size="sm" onClick={() => setAdding(true)} className="rounded-xl"><Plus className="h-4 w-4" /> Ny</Button>
       </div>
       <div className="space-y-2">
@@ -570,12 +577,21 @@ function CategoriesEditor() {
               onChange={e => dispatch({ type: "UPSERT_CATEGORY", cat: { ...c, name: e.target.value } })}
               className="rounded-lg max-w-[180px] h-9"
             />
-            <Input
-              type="number"
-              value={c.budget}
-              onChange={e => dispatch({ type: "UPSERT_CATEGORY", cat: { ...c, budget: parseFloat(e.target.value) || 0 } })}
-              className="rounded-lg max-w-[120px] h-9"
-            />
+            {c.isFixed ? (
+              <div className="flex items-center gap-1.5 max-w-[120px] w-full">
+                <div className="h-9 rounded-lg bg-muted/60 border border-dashed px-3 flex items-center justify-between gap-1 w-full text-sm text-muted-foreground">
+                  <Lock className="h-3 w-3 shrink-0" />
+                  <span className="tabular-nums">{effectiveBudgets[c.id].toLocaleString("sv-SE")}</span>
+                </div>
+              </div>
+            ) : (
+              <Input
+                type="number"
+                value={c.budget}
+                onChange={e => dispatch({ type: "UPSERT_CATEGORY", cat: { ...c, budget: parseFloat(e.target.value) || 0 } })}
+                className="rounded-lg max-w-[120px] h-9"
+              />
+            )}
             <span className="text-xs text-muted-foreground hidden md:inline">SEK/mån</span>
             <div className="flex items-center gap-2 ml-auto">
               <span className="text-xs text-muted-foreground hidden md:inline">Fast</span>

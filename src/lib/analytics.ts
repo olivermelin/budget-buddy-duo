@@ -1,6 +1,77 @@
 import { AppState, Transaction, Subscription } from "@/types/budget";
 import { monthKey } from "./format";
 
+// ─── Effektiva kategoribudgetar ───────────────────────────────────────────────
+// Fasta kategorier: budget = summa aktiva återkommande utgifter i kategorin
+// Rörliga kategorier: budget = det manuellt angivna värdet
+
+export function computeEffectiveBudgets(state: AppState): Record<string, number> {
+  const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
+  const fromRecurring: Record<string, number> = {};
+
+  for (const rt of state.recurringTransactions) {
+    if (!rt.isActive || rt.type !== "expense") continue;
+    if (fixedCats.has(rt.categoryId)) {
+      fromRecurring[rt.categoryId] = (fromRecurring[rt.categoryId] ?? 0) + rt.amount;
+    }
+  }
+
+  const result: Record<string, number> = {};
+  for (const c of state.categories) {
+    result[c.id] = c.isFixed ? (fromRecurring[c.id] ?? 0) : c.budget;
+  }
+  return result;
+}
+
+// ─── Månadsplan baserad på återkommande mallar ────────────────────────────────
+
+export interface MonthPlan {
+  plannedIncome: number;        // Summa aktiva återkommande inkomster
+  plannedFixed: number;         // Summa aktiva återkommande fasta utgifter
+  plannedFreeToSpend: number;   // plannedIncome − plannedFixed
+  actualVariable: number;       // Faktiska rörliga utgifter denna månad
+  actualFixed: number;          // Faktiska fasta utgifter denna månad
+  remaining: number;            // plannedFreeToSpend − actualVariable
+  spendPercent: number;         // actualVariable / plannedFreeToSpend (0–1+)
+  hasRecurring: boolean;        // Finns det mallar alls?
+}
+
+export function buildMonthPlan(state: AppState, year: number, month: number): MonthPlan {
+  const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
+
+  let plannedIncome = 0;
+  let plannedFixed = 0;
+  for (const rt of state.recurringTransactions) {
+    if (!rt.isActive) continue;
+    if (rt.type === "income") plannedIncome += rt.amount;
+    else plannedFixed += rt.amount;
+  }
+
+  const txs = state.transactions.filter(t => inMonth(t.date, year, month));
+  let actualVariable = 0;
+  let actualFixed = 0;
+  for (const t of txs) {
+    if (t.type !== "expense") continue;
+    if (fixedCats.has(t.categoryId)) actualFixed += t.amount;
+    else actualVariable += t.amount;
+  }
+
+  const plannedFreeToSpend = Math.max(0, plannedIncome - plannedFixed);
+  const remaining = plannedFreeToSpend - actualVariable;
+  const spendPercent = plannedFreeToSpend > 0 ? actualVariable / plannedFreeToSpend : 0;
+
+  return {
+    plannedIncome,
+    plannedFixed,
+    plannedFreeToSpend,
+    actualVariable,
+    actualFixed,
+    remaining,
+    spendPercent,
+    hasRecurring: state.recurringTransactions.some(r => r.isActive),
+  };
+}
+
 export const inMonth = (iso: string, year: number, month: number) => {
   const d = new Date(iso);
   return d.getFullYear() === year && d.getMonth() === month;
