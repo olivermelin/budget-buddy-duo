@@ -87,6 +87,18 @@ export interface Settings {
   theme: "light" | "dark" | "system";
 }
 
+export interface RecurringTransaction {
+  id: string;
+  description: string;
+  amount: number;
+  type: TransactionType;
+  categoryId: string;
+  payerId: string;
+  dayOfMonth: number; // 1–31
+  isActive: boolean;
+  lastGeneratedMonth: string | null; // "YYYY-MM", null = aldrig genererad
+}
+
 export interface AppState {
   settings: Settings;
   persons: Person[];
@@ -95,4 +107,5 @@ export interface AppState {
   goals: SavingsGoal[];
   loans: Loan[];
   subscriptionOverrides: Record<string, "active" | "cancelled">;
+  recurringTransactions: RecurringTransaction[];
 }

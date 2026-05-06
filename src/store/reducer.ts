@@ -1,4 +1,4 @@
-import { AppState, Transaction, Category, Person, SavingsGoal, Settings, Loan, LoanPayment } from "@/types/budget";
+import { AppState, Transaction, Category, Person, SavingsGoal, Settings, Loan, LoanPayment, RecurringTransaction } from "@/types/budget";
 
 const uid = () => crypto.randomUUID();
 
@@ -21,6 +21,9 @@ export type Action =
   | { type: "ADD_LOAN_PAYMENT"; loanId: string; payment: Omit<LoanPayment, "id"> & { id?: string } }
   | { type: "UPDATE_SETTINGS"; patch: Partial<Settings> }
   | { type: "SET_SUB_STATUS"; key: string; status: "active" | "cancelled" }
+  | { type: "UPSERT_RECURRING"; rt: RecurringTransaction }
+  | { type: "DELETE_RECURRING"; id: string }
+  | { type: "MARK_RECURRING_GENERATED"; id: string; month: string }
   | { type: "RESET" }
   | { type: "CLEAR" }
   | { type: "HYDRATE"; state: AppState };
@@ -96,6 +99,24 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, settings: { ...state.settings, ...action.patch } };
     case "SET_SUB_STATUS":
       return { ...state, subscriptionOverrides: { ...state.subscriptionOverrides, [action.key]: action.status } };
+    case "UPSERT_RECURRING": {
+      const exists = state.recurringTransactions.find(r => r.id === action.rt.id);
+      return {
+        ...state,
+        recurringTransactions: exists
+          ? state.recurringTransactions.map(r => r.id === action.rt.id ? action.rt : r)
+          : [...state.recurringTransactions, action.rt],
+      };
+    }
+    case "DELETE_RECURRING":
+      return { ...state, recurringTransactions: state.recurringTransactions.filter(r => r.id !== action.id) };
+    case "MARK_RECURRING_GENERATED":
+      return {
+        ...state,
+        recurringTransactions: state.recurringTransactions.map(r =>
+          r.id === action.id ? { ...r, lastGeneratedMonth: action.month } : r
+        ),
+      };
     case "RESET":
     case "CLEAR":
       return { ...state, transactions: [], goals: [], loans: [], subscriptionOverrides: {} };

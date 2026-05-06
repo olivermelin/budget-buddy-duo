@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, UserPlus, Copy, Check, LogOut } from "lucide-react";
+import { Plus, Trash2, UserPlus, Copy, Check, LogOut, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { RecurringTransaction } from "@/types/budget";
 
 const ICONS = ["🛒", "🏠", "🚗", "🎬", "🛍️", "📱", "✈️", "✨", "🍽️", "💪", "📚", "🐾", "💊", "🎁"];
 
@@ -71,6 +72,9 @@ export default function Settings() {
 
       {/* Categories */}
       <CategoriesEditor />
+
+      {/* Recurring transactions */}
+      <RecurringEditor />
 
       {/* Account */}
       <AccountSection />
@@ -324,6 +328,206 @@ function MembersSection() {
           </div>
           <DialogFooter>
             <Button onClick={() => setInviteOpen(false)} className="bg-gradient-primary rounded-xl w-full">Klar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+function RecurringEditor() {
+  const { state, dispatch } = useBudget();
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<RecurringTransaction | null>(null);
+
+  const [type, setType] = useState<"expense" | "income">("expense");
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [categoryId, setCategoryId] = useState(state.categories[0]?.id ?? "");
+  const [payerId, setPayerId] = useState(state.persons[0]?.id ?? "");
+  const [day, setDay] = useState("25");
+  const [isActive, setIsActive] = useState(true);
+
+  const openNew = () => {
+    setEditing(null);
+    setType("expense");
+    setDescription("");
+    setAmount("");
+    setCategoryId(state.categories[0]?.id ?? "");
+    setPayerId(state.persons[0]?.id ?? user?.id ?? "");
+    setDay("25");
+    setIsActive(true);
+    setOpen(true);
+  };
+
+  const openEdit = (rt: RecurringTransaction) => {
+    setEditing(rt);
+    setType(rt.type);
+    setDescription(rt.description);
+    setAmount(String(rt.amount));
+    setCategoryId(rt.categoryId);
+    setPayerId(rt.payerId);
+    setDay(String(rt.dayOfMonth));
+    setIsActive(rt.isActive);
+    setOpen(true);
+  };
+
+  const save = () => {
+    const num = parseFloat(amount.replace(",", "."));
+    if (!num || num <= 0) { toast.error("Ange ett belopp"); return; }
+    if (!description.trim()) { toast.error("Lägg till beskrivning"); return; }
+    const dayNum = parseInt(day, 10);
+    if (!dayNum || dayNum < 1 || dayNum > 31) { toast.error("Dag måste vara 1–31"); return; }
+
+    const rt: RecurringTransaction = {
+      id: editing?.id ?? crypto.randomUUID(),
+      description: description.trim(),
+      amount: num,
+      type,
+      categoryId,
+      payerId,
+      dayOfMonth: dayNum,
+      isActive,
+      lastGeneratedMonth: editing?.lastGeneratedMonth ?? null,
+    };
+    dispatch({ type: "UPSERT_RECURRING", rt });
+    toast.success(editing ? "Uppdaterad" : "Återkommande transaktion skapad");
+    setOpen(false);
+  };
+
+  const remove = (id: string) => {
+    dispatch({ type: "DELETE_RECURRING", id });
+    toast.success("Borttagen");
+  };
+
+  const toggleActive = (rt: RecurringTransaction) => {
+    dispatch({ type: "UPSERT_RECURRING", rt: { ...rt, isActive: !rt.isActive } });
+  };
+
+  const typeLabel = (rt: RecurringTransaction) =>
+    rt.type === "income" ? "Inkomst" : "Utgift";
+
+  const catName = (id: string) =>
+    state.categories.find(c => c.id === id)?.name ?? "–";
+
+  const personName = (id: string) =>
+    state.persons.find(p => p.id === id)?.name ?? "–";
+
+  return (
+    <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-display font-semibold">Återkommande transaktioner</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Läggs in automatiskt varje månad</p>
+        </div>
+        <Button size="sm" onClick={openNew} className="rounded-xl"><Plus className="h-4 w-4" /> Ny</Button>
+      </div>
+
+      {state.recurringTransactions.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-4">Inga återkommande transaktioner än.</p>
+      )}
+
+      <div className="space-y-2">
+        {state.recurringTransactions.map(rt => (
+          <div key={rt.id} className={cn("flex items-center gap-3 p-3 rounded-xl bg-muted/30", !rt.isActive && "opacity-50")}>
+            <div className="text-lg w-8 text-center">{rt.type === "income" ? "💰" : "📅"}</div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-sm truncate">{rt.description}</span>
+                <span className={cn("text-xs px-1.5 py-0.5 rounded-md font-medium", rt.type === "income" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
+                  {typeLabel(rt)}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {rt.amount.toLocaleString("sv-SE")} kr · dag {rt.dayOfMonth} · {catName(rt.categoryId)} · {personName(rt.payerId)}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <Switch
+                checked={rt.isActive}
+                onCheckedChange={() => toggleActive(rt)}
+                aria-label={rt.isActive ? "Inaktivera" : "Aktivera"}
+              />
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(rt)} aria-label="Redigera">
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => remove(rt.id)} aria-label="Ta bort">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-display">{editing ? "Redigera" : "Ny återkommande transaktion"}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div role="group" aria-label="Typ" className="grid grid-cols-2 gap-2 p-1 bg-muted rounded-xl">
+              <button onClick={() => setType("expense")} aria-pressed={type === "expense"}
+                className={cn("py-2 rounded-lg text-sm font-medium transition", type === "expense" ? "bg-card shadow-soft" : "text-muted-foreground")}>
+                Utgift
+              </button>
+              <button onClick={() => setType("income")} aria-pressed={type === "income"}
+                className={cn("py-2 rounded-lg text-sm font-medium transition", type === "income" ? "bg-card shadow-soft" : "text-muted-foreground")}>
+                Inkomst
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="rt-desc">Beskrivning</Label>
+              <Input id="rt-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder="T.ex. Lön, Hyra, Spotify" className="rounded-xl" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="rt-amount">Belopp (SEK)</Label>
+                <Input id="rt-amount" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" className="rounded-xl" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rt-day">Dag i månaden</Label>
+                <Input id="rt-day" type="number" min={1} max={31} value={day} onChange={e => setDay(e.target.value)} className="rounded-xl" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="rt-cat">Kategori</Label>
+                <Select value={categoryId} onValueChange={setCategoryId}>
+                  <SelectTrigger id="rt-cat" className="rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {state.categories.map(c => (
+                      <SelectItem key={c.id} value={c.id}><span className="mr-1">{c.icon}</span>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rt-payer">{type === "expense" ? "Betalare" : "Mottagare"}</Label>
+                <Select value={payerId} onValueChange={setPayerId}>
+                  <SelectTrigger id="rt-payer" className="rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {state.persons.map(p => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch id="rt-active" checked={isActive} onCheckedChange={setIsActive} />
+              <Label htmlFor="rt-active">Aktiv</Label>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="ghost" onClick={() => setOpen(false)} className="rounded-xl">Avbryt</Button>
+            <Button onClick={save} className="bg-gradient-primary rounded-xl">{editing ? "Uppdatera" : "Spara"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Wallet } from "lucide-react";
 import { toast } from "sonner";
-import { AppState, Transaction, TransactionType, Category, Person, SavingsGoal, Settings, Loan, LoanPayment } from "@/types/budget";
+import { AppState, Transaction, TransactionType, Category, Person, SavingsGoal, Settings, Loan, LoanPayment, RecurringTransaction } from "@/types/budget";
 import { supabase } from "@/lib/supabase";
 import { Sentry } from "@/lib/sentry";
 import { useAuth } from "@/context/AuthContext";
@@ -12,7 +12,7 @@ const STORAGE_KEY = "budgetbuddy.v1";
 // ─── Supabase data loading ────────────────────────────────────────────────────
 
 async function loadHouseholdData(householdId: string): Promise<AppState> {
-  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes] = await Promise.all([
+  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes] = await Promise.all([
     supabase.from("households").select("*").eq("id", householdId).single(),
     supabase.from("household_members").select("*").eq("household_id", householdId),
     supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order"),
@@ -20,6 +20,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId),
     supabase.from("subscription_overrides").select("*").eq("household_id", householdId),
     supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId),
+    supabase.from("recurring_transactions").select("*").eq("household_id", householdId),
   ]);
 
   const members = (mRes.data ?? []) as Record<string, unknown>[];
@@ -28,6 +29,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
   const goals = (goalRes.data ?? []) as Record<string, unknown>[];
   const overrides = (overRes.data ?? []) as Record<string, unknown>[];
   const loans = ((loanRes as { data?: unknown }).data ?? []) as Record<string, unknown>[];
+  const recurs = ((recurRes as { data?: unknown }).data ?? []) as Record<string, unknown>[];
 
   const persons: Person[] = members.map((m) => ({
     id: m.user_id as string,
@@ -116,6 +118,18 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     })).sort((a, b) => b.date.localeCompare(a.date)),
   }));
 
+  const recurringTransactions: RecurringTransaction[] = recurs.map((r) => ({
+    id: r.id as string,
+    description: (r.description ?? "") as string,
+    amount: Number(r.amount),
+    type: r.type as TransactionType,
+    categoryId: (r.category_id ?? "") as string,
+    payerId: (r.payer_user_id ?? "") as string,
+    dayOfMonth: Number(r.day_of_month),
+    isActive: Boolean(r.is_active),
+    lastGeneratedMonth: (r.last_generated_month ?? null) as string | null,
+  }));
+
   return {
     settings: {
       householdName: ((hRes.data as Record<string, unknown> | null)?.name ?? "Mitt hushåll") as string,
@@ -128,6 +142,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     goals: mappedGoals,
     loans: mappedLoans,
     subscriptionOverrides,
+    recurringTransactions,
   };
 }
 
@@ -237,6 +252,28 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         is_active: action.status === "active",
       }, { onConflict: "household_id,transaction_id" });
       return;
+    case "UPSERT_RECURRING":
+      await supabase.from("recurring_transactions").upsert({
+        id: action.rt.id,
+        household_id: householdId,
+        description: action.rt.description,
+        amount: action.rt.amount,
+        type: action.rt.type,
+        category_id: action.rt.categoryId || null,
+        payer_user_id: action.rt.payerId || userId,
+        day_of_month: action.rt.dayOfMonth,
+        is_active: action.rt.isActive,
+        last_generated_month: action.rt.lastGeneratedMonth ?? null,
+      });
+      return;
+    case "DELETE_RECURRING":
+      await supabase.from("recurring_transactions").delete().eq("id", action.id);
+      return;
+    case "MARK_RECURRING_GENERATED":
+      await supabase.from("recurring_transactions")
+        .update({ last_generated_month: action.month })
+        .eq("id", action.id);
+      return;
     case "UPSERT_LOAN":
       await supabase.from("loans").upsert({
         id: action.loan.id,
@@ -282,6 +319,45 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
   }
 }
 
+// ─── Recurring transaction auto-generation ───────────────────────────────────
+
+function monthsToGenerate(rt: RecurringTransaction, today: Date): string[] {
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth() + 1; // 1-based
+  const todayDay = today.getDate();
+
+  let startYear: number;
+  let startMonth: number; // 1-based
+
+  if (rt.lastGeneratedMonth) {
+    const [y, m] = rt.lastGeneratedMonth.split("-").map(Number);
+    // Next month after last generated
+    startMonth = m + 1 > 12 ? 1 : m + 1;
+    startYear = m + 1 > 12 ? y + 1 : y;
+  } else {
+    startYear = todayYear;
+    startMonth = todayMonth;
+  }
+
+  const dates: string[] = [];
+  let y = startYear;
+  let m = startMonth;
+
+  while (y < todayYear || (y === todayYear && m <= todayMonth)) {
+    const isCurrentMonth = y === todayYear && m === todayMonth;
+    if (!isCurrentMonth || todayDay >= rt.dayOfMonth) {
+      // Clamp day to last day of month (e.g. Feb 28/29)
+      const lastDay = new Date(y, m, 0).getDate();
+      const day = Math.min(rt.dayOfMonth, lastDay);
+      dates.push(`${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+    }
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+
+  return dates;
+}
+
 // ─── Empty state (before Supabase loads) ─────────────────────────────────────
 
 const emptyState: AppState = {
@@ -292,6 +368,7 @@ const emptyState: AppState = {
   goals: [],
   loans: [],
   subscriptionOverrides: {},
+  recurringTransactions: [],
 };
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -347,10 +424,43 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "categories",        filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "savings_goals",     filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "household_members", filter: `household_id=eq.${householdId}` }, reload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "loans",             filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "loans",                   filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "recurring_transactions",  filter: `household_id=eq.${householdId}` }, reload)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [householdId, reload]);
+
+  // Auto-generate recurring transactions on load
+  useEffect(() => {
+    if (storeLoading) return;
+    const today = new Date();
+    const active = state.recurringTransactions.filter(r => r.isActive);
+    if (active.length === 0) return;
+
+    for (const rt of active) {
+      const dates = monthsToGenerate(rt, today);
+      if (dates.length === 0) continue;
+
+      for (const date of dates) {
+        dispatch({
+          type: "ADD_TX",
+          tx: {
+            date,
+            amount: rt.amount,
+            type: rt.type,
+            categoryId: rt.categoryId,
+            payerId: rt.payerId,
+            description: rt.description,
+            isRecurring: true,
+          },
+        });
+      }
+
+      const latestMonth = dates[dates.length - 1].slice(0, 7); // "YYYY-MM"
+      dispatch({ type: "MARK_RECURRING_GENERATED", id: rt.id, month: latestMonth });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeLoading]);
 
   useEffect(() => {
     const root = document.documentElement;
