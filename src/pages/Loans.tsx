@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useBudget } from "@/store/budget-store";
 import { Loan, LoanType } from "@/types/budget";
 import { sek, pct } from "@/lib/format";
@@ -176,6 +176,21 @@ export default function Loans() {
                         <div className="text-xs text-muted-foreground truncate">
                           {LOAN_TYPE_LABEL[l.type]}{l.lender ? ` · ${l.lender}` : ""} · {l.interestRate}% ränta
                         </div>
+                        {/* Ägarbadge */}
+                        {(() => {
+                          const owner = l.ownerId ? state.persons.find(p => p.id === l.ownerId) : null;
+                          if (owner) return (
+                            <span className="inline-flex items-center mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-primary/10 text-primary">
+                              👤 {owner.name}
+                            </span>
+                          );
+                          if (l.ownerId === null && state.persons.length > 1) return (
+                            <span className="inline-flex items-center mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">
+                              🤝 Gemensamt · {l.ownerShare}% / {100 - l.ownerShare}%
+                            </span>
+                          );
+                          return null;
+                        })()}
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -347,25 +362,39 @@ function LoanFormDialog({
   loan: Loan | null;
   onSave: (loan: Loan) => void;
 }) {
+  const { state } = useBudget();
   const isEdit = !!loan;
-  const [name, setName] = useState(loan?.name ?? "");
-  const [type, setType] = useState<LoanType>(loan?.type ?? "mortgage");
-  const [lender, setLender] = useState(loan?.lender ?? "");
-  const [originalAmount, setOriginalAmount] = useState<string>(loan ? String(loan.originalAmount) : "");
-  const [currentBalance, setCurrentBalance] = useState<string>(loan ? String(loan.currentBalance) : "");
-  const [interestRate, setInterestRate] = useState<string>(loan ? String(loan.interestRate) : "");
-  const [monthlyPayment, setMonthlyPayment] = useState<string>(loan ? String(loan.monthlyPayment) : "");
+  const [name, setName] = useState("");
+  const [type, setType] = useState<LoanType>("mortgage");
+  const [lender, setLender] = useState("");
+  const [originalAmount, setOriginalAmount] = useState("");
+  const [currentBalance, setCurrentBalance] = useState("");
+  const [interestRate, setInterestRate] = useState("");
+  const [monthlyPayment, setMonthlyPayment] = useState("");
 
-  // Reset state when dialog opens with different loan
-  useMemo(() => {
-    if (open) {
-      setName(loan?.name ?? "");
-      setType(loan?.type ?? "mortgage");
-      setLender(loan?.lender ?? "");
-      setOriginalAmount(loan ? String(loan.originalAmount) : "");
-      setCurrentBalance(loan ? String(loan.currentBalance) : "");
-      setInterestRate(loan ? String(loan.interestRate) : "");
-      setMonthlyPayment(loan ? String(loan.monthlyPayment) : "");
+  // "private:<personId>" eller "shared"
+  const [ownerMode, setOwnerMode] = useState<string>("shared");
+  const [ownerShare, setOwnerShare] = useState(57); // andel för person[0]
+
+  useEffect(() => {
+    if (!open) return;
+    setName(loan?.name ?? "");
+    setType(loan?.type ?? "mortgage");
+    setLender(loan?.lender ?? "");
+    setOriginalAmount(loan ? String(loan.originalAmount) : "");
+    setCurrentBalance(loan ? String(loan.currentBalance) : "");
+    setInterestRate(loan ? String(loan.interestRate) : "");
+    setMonthlyPayment(loan ? String(loan.monthlyPayment) : "");
+    // Ägare
+    if (loan?.ownerId) {
+      setOwnerMode(`private:${loan.ownerId}`);
+      setOwnerShare(loan.ownerShare ?? 100);
+    } else {
+      setOwnerMode(state.persons.length > 1 ? "shared" : `private:${state.persons[0]?.id ?? ""}`);
+      // Defaulta till inkomstbaserad fördelning
+      const total = state.persons.reduce((s, p) => s + p.income, 0);
+      const p0Share = total > 0 ? Math.round((state.persons[0]?.income ?? 0) / total * 100) : 50;
+      setOwnerShare(loan?.ownerShare ?? p0Share);
     }
   }, [open, loan]);
 
@@ -376,6 +405,10 @@ function LoanFormDialog({
     if (bal <= 0) { toast.error("Ange kvarvarande skuld"); return; }
     const rate = Number(interestRate) || 0;
     const monthly = Number(monthlyPayment) || 0;
+
+    const isShared = ownerMode === "shared";
+    const resolvedOwnerId = isShared ? null : ownerMode.replace("private:", "");
+
     onSave({
       id: loan?.id ?? crypto.randomUUID(),
       name: name.trim(),
@@ -386,8 +419,8 @@ function LoanFormDialog({
       interestRate: rate,
       monthlyPayment: monthly,
       monthlyAmortization: Math.max(0, monthly - bal * (rate / 100 / 12)),
-      ownerId: loan?.ownerId ?? null,
-      ownerShare: loan?.ownerShare ?? 100,
+      ownerId: resolvedOwnerId,
+      ownerShare: isShared ? ownerShare : 100,
       icon: loan?.icon ?? LOAN_TYPE_ICON[type],
       payments: loan?.payments ?? [],
       startDate: loan?.startDate,
@@ -396,9 +429,12 @@ function LoanFormDialog({
     onOpenChange(false);
   };
 
+  const p0 = state.persons[0];
+  const p1 = state.persons[1];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-2xl">
+      <DialogContent className="rounded-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Redigera lån" : "Nytt lån"}</DialogTitle>
         </DialogHeader>
@@ -444,6 +480,56 @@ function LoanFormDialog({
               <Input inputMode="decimal" value={monthlyPayment} onChange={(e) => setMonthlyPayment(e.target.value)} onFocus={e => e.target.select()} placeholder="kr/mån" />
             </div>
           </div>
+
+          {/* Ägarskap */}
+          {state.persons.length > 0 && (
+            <div className="space-y-2">
+              <Label>Ägarskap</Label>
+              <div className={cn("grid gap-1 p-1 bg-muted rounded-xl", state.persons.length > 1 ? "grid-cols-3" : "grid-cols-1")}>
+                {state.persons.map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setOwnerMode(`private:${p.id}`)}
+                    aria-pressed={ownerMode === `private:${p.id}`}
+                    className={cn("py-2 px-2 rounded-lg text-sm font-medium transition truncate", ownerMode === `private:${p.id}` ? "bg-card shadow-soft" : "text-muted-foreground")}
+                  >
+                    👤 {p.name}
+                  </button>
+                ))}
+                {state.persons.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setOwnerMode("shared")}
+                    aria-pressed={ownerMode === "shared"}
+                    className={cn("py-2 px-2 rounded-lg text-sm font-medium transition", ownerMode === "shared" ? "bg-card shadow-soft" : "text-muted-foreground")}
+                  >
+                    🤝 Gemensamt
+                  </button>
+                )}
+              </div>
+
+              {/* Fördelningsslider för gemensamma lån */}
+              {ownerMode === "shared" && p0 && p1 && (
+                <div className="pt-1 space-y-2">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{p0.name}: <span className="font-semibold text-foreground">{ownerShare}%</span></span>
+                    <span>{p1.name}: <span className="font-semibold text-foreground">{100 - ownerShare}%</span></span>
+                  </div>
+                  <Slider
+                    value={[ownerShare]}
+                    min={1}
+                    max={99}
+                    step={1}
+                    onValueChange={v => setOwnerShare(v[0])}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Av {currentBalance ? `${sek(Number(currentBalance))} skuld` : "skulden"} ansvarar {p0.name} för {sek(Number(currentBalance || 0) * ownerShare / 100)} och {p1.name} för {sek(Number(currentBalance || 0) * (100 - ownerShare) / 100)}.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Avbryt</Button>
