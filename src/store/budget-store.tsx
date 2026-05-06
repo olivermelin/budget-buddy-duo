@@ -495,6 +495,25 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
     internalDispatch(processed);
 
+    // När en återkommande inkomst sparas, synka personens månadsinkomst automatiskt
+    // så att 57/43-fördelningen alltid stämmer utan manuell uppdatering
+    if (processed.type === "UPSERT_RECURRING" && processed.rt.type === "income" && processed.rt.payerId) {
+      const incomeSync: Action = {
+        type: "UPDATE_PERSON",
+        id: processed.rt.payerId,
+        patch: { income: processed.rt.amount },
+      };
+      internalDispatch(incomeSync);
+      const hid = householdIdRef.current;
+      const uid = userRef.current;
+      if (hid && uid) {
+        writeToSupabase(incomeSync, hid, uid).catch((err) => {
+          console.error("[BudgetStore] Income sync failed:", err);
+          Sentry.captureException(err);
+        });
+      }
+    }
+
     const hid = householdIdRef.current;
     const uid = userRef.current;
     if (hid && uid) {
