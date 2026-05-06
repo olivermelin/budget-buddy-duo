@@ -1,4 +1,4 @@
-import { AppState, Transaction, Category, Person, SavingsGoal, Settings } from "@/types/budget";
+import { AppState, Transaction, Category, Person, SavingsGoal, Settings, Loan, LoanPayment } from "@/types/budget";
 
 const uid = () => crypto.randomUUID();
 
@@ -16,6 +16,9 @@ export type Action =
   | { type: "ADD_GOAL_CONTRIB"; goalId: string; amount: number; personId: string }
   | { type: "ADD_GOAL_SNAPSHOT"; goalId: string; balance: number; date: string; note: string }
   | { type: "DELETE_GOAL_SNAPSHOT"; goalId: string; snapshotId: string }
+  | { type: "UPSERT_LOAN"; loan: Loan }
+  | { type: "DELETE_LOAN"; id: string }
+  | { type: "ADD_LOAN_PAYMENT"; loanId: string; payment: Omit<LoanPayment, "id"> & { id?: string } }
   | { type: "UPDATE_SETTINGS"; patch: Partial<Settings> }
   | { type: "SET_SUB_STATUS"; key: string; status: "active" | "cancelled" }
   | { type: "RESET" }
@@ -72,13 +75,30 @@ export function reducer(state: AppState, action: Action): AppState {
           snapshots: (g.snapshots ?? []).filter(s => s.id !== action.snapshotId),
         } : g),
       };
+    case "UPSERT_LOAN": {
+      const exists = state.loans.find(l => l.id === action.loan.id);
+      return { ...state, loans: exists ? state.loans.map(l => l.id === action.loan.id ? action.loan : l) : [...state.loans, action.loan] };
+    }
+    case "DELETE_LOAN":
+      return { ...state, loans: state.loans.filter(l => l.id !== action.id) };
+    case "ADD_LOAN_PAYMENT": {
+      const pid = action.payment.id ?? uid();
+      return {
+        ...state,
+        loans: state.loans.map(l => l.id === action.loanId ? {
+          ...l,
+          currentBalance: Math.max(0, l.currentBalance - action.payment.amount),
+          payments: [{ ...action.payment, id: pid }, ...l.payments],
+        } : l),
+      };
+    }
     case "UPDATE_SETTINGS":
       return { ...state, settings: { ...state.settings, ...action.patch } };
     case "SET_SUB_STATUS":
       return { ...state, subscriptionOverrides: { ...state.subscriptionOverrides, [action.key]: action.status } };
     case "RESET":
     case "CLEAR":
-      return { ...state, transactions: [], goals: [], subscriptionOverrides: {} };
+      return { ...state, transactions: [], goals: [], loans: [], subscriptionOverrides: {} };
     case "HYDRATE":
       return action.state;
     default:

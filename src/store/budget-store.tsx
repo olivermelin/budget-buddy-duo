@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Wallet } from "lucide-react";
 import { toast } from "sonner";
-import { AppState, Transaction, TransactionType, Category, Person, SavingsGoal } from "@/types/budget";
+import { AppState, Transaction, TransactionType, Category, Person, SavingsGoal, Settings, Loan, LoanPayment } from "@/types/budget";
 import { supabase } from "@/lib/supabase";
 import { Sentry } from "@/lib/sentry";
 import { useAuth } from "@/context/AuthContext";
@@ -12,13 +12,14 @@ const STORAGE_KEY = "budgetbuddy.v1";
 // ─── Supabase data loading ────────────────────────────────────────────────────
 
 async function loadHouseholdData(householdId: string): Promise<AppState> {
-  const [hRes, mRes, catRes, txRes, goalRes, overRes] = await Promise.all([
+  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes] = await Promise.all([
     supabase.from("households").select("*").eq("id", householdId).single(),
     supabase.from("household_members").select("*").eq("household_id", householdId),
     supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order"),
     supabase.from("transactions").select("*").eq("household_id", householdId).order("date", { ascending: false }),
     supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId),
     supabase.from("subscription_overrides").select("*").eq("household_id", householdId),
+    supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId),
   ]);
 
   const members = (mRes.data ?? []) as Record<string, unknown>[];
@@ -26,6 +27,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
   const txs = (txRes.data ?? []) as Record<string, unknown>[];
   const goals = (goalRes.data ?? []) as Record<string, unknown>[];
   const overrides = (overRes.data ?? []) as Record<string, unknown>[];
+  const loans = ((loanRes as { data?: unknown }).data ?? []) as Record<string, unknown>[];
 
   const persons: Person[] = members.map((m) => ({
     id: m.user_id as string,
@@ -33,7 +35,6 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     color: m.person_color as string,
     income: m.income_monthly as number,
   }));
-  // If user is alone in household, ensure at least themselves shows up
   if (persons.length === 0) {
     persons.push({ id: `placeholder-0`, name: "Person 1", color: "#94a3b8", income: 0 });
   }
@@ -84,12 +85,36 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     subscriptionOverrides[o.transaction_id as string] = o.is_active ? "active" : "cancelled";
   }
 
-  // Theme is device-only — keep from localStorage
   let theme: "light" | "dark" | "system" = "system";
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     theme = saved?.settings?.theme ?? "system";
   } catch { /* ignore */ }
+
+  const mappedLoans: Loan[] = loans.map((l) => ({
+    id: l.id as string,
+    name: l.name as string,
+    type: l.type as Loan["type"],
+    lender: (l.lender ?? "") as string,
+    originalAmount: Number(l.original_amount ?? 0),
+    currentBalance: Number(l.current_balance ?? 0),
+    interestRate: Number(l.interest_rate ?? 0),
+    monthlyPayment: Number(l.monthly_payment ?? 0),
+    monthlyAmortization: Number(l.monthly_amortization ?? 0),
+    startDate: (l.start_date ?? undefined) as string | undefined,
+    endDate: (l.end_date ?? undefined) as string | undefined,
+    ownerId: (l.owner_user_id ?? null) as string | null,
+    ownerShare: Number(l.owner_share ?? 100),
+    icon: (l.icon ?? "💰") as string,
+    payments: ((l.loan_payments ?? []) as Record<string, unknown>[]).map((p) => ({
+      id: p.id as string,
+      date: p.date as string,
+      amount: Number(p.amount),
+      isExtra: Boolean(p.is_extra),
+      note: (p.note ?? "") as string,
+      personId: (p.user_id ?? "") as string,
+    })).sort((a, b) => b.date.localeCompare(a.date)),
+  }));
 
   return {
     settings: {
@@ -101,6 +126,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     categories,
     transactions,
     goals: mappedGoals,
+    loans: mappedLoans,
     subscriptionOverrides,
   };
 }
@@ -211,10 +237,45 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         is_active: action.status === "active",
       }, { onConflict: "household_id,transaction_id" });
       return;
+    case "UPSERT_LOAN":
+      await supabase.from("loans").upsert({
+        id: action.loan.id,
+        household_id: householdId,
+        name: action.loan.name,
+        type: action.loan.type,
+        lender: action.loan.lender,
+        original_amount: action.loan.originalAmount,
+        current_balance: action.loan.currentBalance,
+        interest_rate: action.loan.interestRate,
+        monthly_payment: action.loan.monthlyPayment,
+        monthly_amortization: action.loan.monthlyAmortization,
+        start_date: action.loan.startDate ?? null,
+        end_date: action.loan.endDate ?? null,
+        owner_user_id: action.loan.ownerId ?? null,
+        owner_share: action.loan.ownerShare,
+        icon: action.loan.icon,
+      });
+      return;
+    case "DELETE_LOAN":
+      await supabase.from("loans").delete().eq("id", action.id);
+      return;
+    case "ADD_LOAN_PAYMENT":
+      await supabase.from("loan_payments").insert({
+        id: action.payment.id,
+        loan_id: action.loanId,
+        user_id: action.payment.personId || userId,
+        date: action.payment.date,
+        amount: action.payment.amount,
+        is_extra: action.payment.isExtra,
+        note: action.payment.note,
+      });
+      await supabase.rpc("decrement_loan_balance", { lid: action.loanId, delta: action.payment.amount });
+      return;
     case "CLEAR":
       await Promise.all([
         supabase.from("transactions").delete().eq("household_id", householdId),
         supabase.from("savings_goals").delete().eq("household_id", householdId),
+        supabase.from("loans").delete().eq("household_id", householdId),
         supabase.from("subscription_overrides").delete().eq("household_id", householdId),
       ]);
       return;
@@ -229,6 +290,7 @@ const emptyState: AppState = {
   categories: [],
   transactions: [],
   goals: [],
+  loans: [],
   subscriptionOverrides: {},
 };
 
@@ -245,10 +307,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const [storeLoading, setStoreLoading] = useState(true);
   const householdIdRef = useRef(householdId);
   householdIdRef.current = householdId;
-  // Always read the freshest user ID — avoids stale closures after token refresh
   const userRef = useRef(user?.id);
   userRef.current = user?.id;
-  // Guard against concurrent reload() calls (e.g. from realtime + retry)
   const reloadInProgress = useRef(false);
 
   const reload = useCallback(async () => {
@@ -266,7 +326,6 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Initial load from Supabase
   useEffect(() => {
     if (!householdId) { setStoreLoading(false); return; }
     setStoreLoading(true);
@@ -280,22 +339,19 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setStoreLoading(false));
   }, [householdId]);
 
-  // Realtime subscription (cross-device sync)
-  // Note: enable Realtime for each table in Supabase Dashboard → Database → Replication
   useEffect(() => {
     if (!householdId) return;
     const channel = supabase
       .channel(`hh-${householdId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "transactions",    filter: `household_id=eq.${householdId}` }, reload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "categories",      filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "transactions",      filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories",        filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "savings_goals",     filter: `household_id=eq.${householdId}` }, reload)
-      // savings_snapshots has no household_id column — covered by savings_goals realtime above
       .on("postgres_changes", { event: "*", schema: "public", table: "household_members", filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "loans",             filter: `household_id=eq.${householdId}` }, reload)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [householdId, reload]);
 
-  // Theme application
   useEffect(() => {
     const root = document.documentElement;
     const apply = () => {
@@ -311,7 +367,6 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.settings.theme]);
 
-  // Persist only theme to localStorage (data lives in Supabase)
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
@@ -323,9 +378,6 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   }, [state.settings.theme]);
 
   const dispatch = useCallback((action: Action) => {
-    // Inject UUID for new transactions so the same ID is forwarded to Supabase.
-    // Using the processed action (with a stable UUID) in the retry ensures we
-    // don't generate a second UUID on retry, which could cause duplicates.
     const processed =
       action.type === "ADD_TX" && !action.tx.id
         ? { ...action, tx: { ...action.tx, id: crypto.randomUUID() } }
@@ -334,17 +386,15 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     internalDispatch(processed);
 
     const hid = householdIdRef.current;
-    const uid = userRef.current; // always fresh — no stale closure after token refresh
+    const uid = userRef.current;
     if (hid && uid) {
       writeToSupabase(processed, hid, uid).catch((err) => {
         console.error("[BudgetStore] Supabase write failed:", err);
         Sentry.captureException(err);
         toast.error("Ändringen kunde inte sparas", {
           description: "Kontrollera din uppkoppling och försök igen.",
-          // Retry with the same processed action (same UUID) so we never create duplicates
           action: { label: "Försök igen", onClick: () => dispatch(processed) },
         });
-        // Restore correct state from DB to undo the optimistic update
         reload();
       });
     }

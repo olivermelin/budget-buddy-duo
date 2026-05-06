@@ -140,5 +140,6 @@ export const initialState: AppState = {
   categories: defaultCategories,
   transactions: generateMockTransactions(),
   goals: defaultGoals,
+  loans: [],
   subscriptionOverrides: {},
 };

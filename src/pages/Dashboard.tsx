@@ -4,7 +4,7 @@ import { lastNMonths, summarizeMonth } from "@/lib/analytics";
 import { sek, pct, monthLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home, Landmark } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -105,6 +105,43 @@ export default function Dashboard() {
         <Kpi icon={<Receipt className="h-4 w-4" />} label="Rörliga utgifter" value={sek(cur.variable)} tone="muted" />
         <Kpi icon={<PiggyBank className="h-4 w-4" />} label="Sparande" value={sek(cur.savings)} tone="primary" />
       </div>
+
+      {/* Net worth */}
+      {(state.goals.length > 0 || state.loans.length > 0) && (() => {
+        const assets = state.goals.reduce((s, g) => s + g.saved, 0);
+        const debts = state.loans.reduce((s, l) => s + l.currentBalance, 0);
+        const net = assets - debts;
+        return (
+          <Card className="p-5 md:p-6 rounded-2xl border-0 shadow-soft">
+            <div className="flex items-center gap-2 mb-3">
+              <Landmark className="h-4 w-4 text-primary" />
+              <h2 className="font-display font-semibold">Nettoförmögenhet</h2>
+            </div>
+            <div className="grid grid-cols-3 gap-4 items-end">
+              <div>
+                <div className="text-xs text-muted-foreground">Tillgångar</div>
+                <div className="font-display font-bold text-lg md:text-xl tabular-nums text-success">{sek(assets)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Skulder</div>
+                <div className="font-display font-bold text-lg md:text-xl tabular-nums text-destructive">−{sek(debts)}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-muted-foreground">Netto</div>
+                <div className={cn("font-display font-extrabold text-2xl md:text-3xl tabular-nums", net >= 0 ? "text-foreground" : "text-destructive")}>
+                  {sek(net)}
+                </div>
+              </div>
+            </div>
+            {(assets + debts) > 0 && (
+              <div className="mt-4 h-2 rounded-full bg-secondary overflow-hidden flex">
+                <div className="h-full bg-success" style={{ width: `${(assets / (assets + debts)) * 100}%` }} />
+                <div className="h-full bg-destructive" style={{ width: `${(debts / (assets + debts)) * 100}%` }} />
+              </div>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* Insights */}
       {insights.length > 0 && (
