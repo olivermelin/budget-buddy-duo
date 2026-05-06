@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { useBudget } from "@/store/budget-store";
+import { useAuth } from "@/context/AuthContext";
 import { Loan, LoanType } from "@/types/budget";
 import { sek, pct } from "@/lib/format";
 import { Card } from "@/components/ui/card";
@@ -73,41 +74,48 @@ function dateInMonths(months: number): string {
 
 export default function Loans() {
   const { state, dispatch } = useBudget();
+  const { user } = useAuth();
   const [editing, setEditing] = useState<Loan | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [paymentFor, setPaymentFor] = useState<Loan | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [shockRate, setShockRate] = useState<number | null>(null);
 
+  // Only show shared loans + the current user's own private loans
+  const visibleLoans = useMemo(() => {
+    const uid = user?.id;
+    return state.loans.filter(l => l.ownerId === null || l.ownerId === uid);
+  }, [state.loans, user?.id]);
+
   const totals = useMemo(() => {
-    const debt = state.loans.reduce((s, l) => s + l.currentBalance, 0);
-    const original = state.loans.reduce((s, l) => s + l.originalAmount, 0);
-    const monthly = state.loans.reduce((s, l) => s + l.monthlyPayment, 0);
-    const yearlyInterest = state.loans.reduce((s, l) => s + l.currentBalance * (l.interestRate / 100), 0);
+    const debt = visibleLoans.reduce((s, l) => s + l.currentBalance, 0);
+    const original = visibleLoans.reduce((s, l) => s + l.originalAmount, 0);
+    const monthly = visibleLoans.reduce((s, l) => s + l.monthlyPayment, 0);
+    const yearlyInterest = visibleLoans.reduce((s, l) => s + l.currentBalance * (l.interestRate / 100), 0);
     return { debt, original, monthly, yearlyInterest, paidOff: Math.max(0, original - debt) };
-  }, [state.loans]);
+  }, [visibleLoans]);
 
   const debtFreeMonths = useMemo(() => {
     let max = 0;
     let possible = true;
-    for (const l of state.loans) {
+    for (const l of visibleLoans) {
       const m = monthsToPayoff(l.currentBalance, l.monthlyPayment, l.interestRate);
       if (m == null) { possible = false; break; }
       if (m > max) max = m;
     }
     return possible ? max : null;
-  }, [state.loans]);
+  }, [visibleLoans]);
 
   const shockImpact = useMemo(() => {
     if (shockRate == null) return null;
-    const newMonthly = state.loans.reduce((s, l) => {
+    const newMonthly = visibleLoans.reduce((s, l) => {
       const newRate = shockRate;
       const r = newRate / 100 / 12;
       const principal = Math.max(0, l.monthlyPayment - l.currentBalance * (l.interestRate / 100 / 12));
       return s + principal + l.currentBalance * r;
     }, 0);
     return { newMonthly, diff: newMonthly - totals.monthly };
-  }, [shockRate, state.loans, totals.monthly]);
+  }, [shockRate, visibleLoans, totals.monthly]);
 
   return (
     <div className="space-y-6">
@@ -121,7 +129,7 @@ export default function Loans() {
         </Button>
       </div>
 
-      {state.loans.length === 0 ? (
+      {visibleLoans.length === 0 ? (
         <Card className="p-10 rounded-2xl border-0 shadow-soft text-center">
           <div className="h-16 w-16 mx-auto rounded-2xl bg-primary/10 flex items-center justify-center text-3xl mb-4">💰</div>
           <h2 className="font-display font-semibold text-xl">Inga lån registrerade</h2>
@@ -157,12 +165,12 @@ export default function Loans() {
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             <Kpi label="Månadskostnad" value={sek(totals.monthly)} icon={<Banknote className="h-4 w-4" />} tone="primary" />
             <Kpi label="Ränta per år" value={sek(totals.yearlyInterest)} icon={<TrendingDown className="h-4 w-4" />} tone="warn" />
-            <Kpi label="Antal lån" value={String(state.loans.length)} icon={<Sparkles className="h-4 w-4" />} tone="muted" />
+            <Kpi label="Antal lån" value={String(visibleLoans.length)} icon={<Sparkles className="h-4 w-4" />} tone="muted" />
           </div>
 
           {/* Loan cards */}
           <div className="grid md:grid-cols-2 gap-4">
-            {state.loans.map(l => {
+            {visibleLoans.map(l => {
               const ratio = l.originalAmount > 0 ? 1 - l.currentBalance / l.originalAmount : 0;
               const months = monthsToPayoff(l.currentBalance, l.monthlyPayment, l.interestRate);
               const interest = totalInterest(l.currentBalance, l.monthlyPayment, l.interestRate);
