@@ -166,6 +166,18 @@ export default function Loans() {
               const months = monthsToPayoff(l.currentBalance, l.monthlyPayment, l.interestRate);
               const interest = totalInterest(l.currentBalance, l.monthlyPayment, l.interestRate);
               const series = buildAmortizationSeries(l.currentBalance, l.monthlyPayment, l.interestRate);
+
+              // Tidsprogress från startDate + endDate
+              const termTotal = (() => {
+                if (!l.startDate || !l.endDate) return null;
+                const s = new Date(l.startDate), e = new Date(l.endDate);
+                return (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+              })();
+              const termPaid = (() => {
+                if (!l.startDate) return null;
+                const s = new Date(l.startDate), now = new Date();
+                return Math.min(termTotal ?? Infinity, Math.max(0, (now.getFullYear() - s.getFullYear()) * 12 + (now.getMonth() - s.getMonth())));
+              })();
               return (
                 <Card key={l.id} className="p-6 rounded-2xl border-0 shadow-soft">
                   <div className="flex items-start justify-between gap-3">
@@ -203,15 +215,34 @@ export default function Loans() {
                     </div>
                   </div>
 
-                  <div className="mt-5">
-                    <div className="flex items-baseline justify-between text-sm mb-2">
-                      <span className="font-display font-bold text-2xl tabular-nums">{sek(l.currentBalance)}</span>
-                      <span className="text-xs text-muted-foreground">av {sek(l.originalAmount)}</span>
+                  <div className="mt-5 space-y-3">
+                    {/* Saldoprogress */}
+                    <div>
+                      <div className="flex items-baseline justify-between text-sm mb-2">
+                        <span className="font-display font-bold text-2xl tabular-nums">{sek(l.currentBalance)}</span>
+                        <span className="text-xs text-muted-foreground">av {sek(l.originalAmount)}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                        <div className="h-full bg-gradient-primary" style={{ width: `${Math.min(100, ratio * 100)}%` }} />
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">{pct(ratio)} avbetalat</div>
                     </div>
-                    <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                      <div className="h-full bg-gradient-primary" style={{ width: `${Math.min(100, ratio * 100)}%` }} />
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1.5">{pct(ratio)} avbetalat</div>
+
+                    {/* Tidsprogress */}
+                    {termTotal != null && termPaid != null && (
+                      <div>
+                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                          <span>Månad <span className="font-semibold text-foreground">{termPaid}</span> av <span className="font-semibold text-foreground">{termTotal}</span></span>
+                          <span>{termTotal - termPaid} månader kvar</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                          <div
+                            className="h-full bg-primary/40 rounded-full"
+                            style={{ width: `${Math.min(100, (termPaid / termTotal) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
@@ -354,6 +385,14 @@ function Stat({ label, value, warn }: { label: string; value: string; warn?: boo
   );
 }
 
+// Beräkna månadsbetalning (annuitet) givet saldo, årsränta och antal månader kvar
+function calcMonthlyPayment(balance: number, annualRate: number, months: number): number {
+  if (months <= 0 || balance <= 0) return 0;
+  const r = annualRate / 100 / 12;
+  if (r === 0) return balance / months;
+  return balance * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1);
+}
+
 function LoanFormDialog({
   open, onOpenChange, loan, onSave,
 }: {
@@ -371,10 +410,30 @@ function LoanFormDialog({
   const [currentBalance, setCurrentBalance] = useState("");
   const [interestRate, setInterestRate] = useState("");
   const [monthlyPayment, setMonthlyPayment] = useState("");
+  const [startMonth, setStartMonth] = useState(""); // YYYY-MM
+  const [termMonths, setTermMonths] = useState("");  // totalt antal månader
 
   // "private:<personId>" eller "shared"
   const [ownerMode, setOwnerMode] = useState<string>("shared");
   const [ownerShare, setOwnerShare] = useState(57); // andel för person[0]
+
+  // Beräkna slutdatum från startmånad + löptid
+  const endMonth = useMemo(() => {
+    if (!startMonth || !termMonths) return "";
+    const [y, m] = startMonth.split("-").map(Number);
+    const n = Number(termMonths);
+    if (!n) return "";
+    const d = new Date(y, m - 1 + n, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }, [startMonth, termMonths]);
+
+  // Beräkna kvarvarande månader från idag till slutdatum
+  const remainingMonths = useMemo(() => {
+    if (!endMonth) return null;
+    const [ey, em] = endMonth.split("-").map(Number);
+    const now = new Date();
+    return Math.max(0, (ey - now.getFullYear()) * 12 + (em - (now.getMonth() + 1)));
+  }, [endMonth]);
 
   useEffect(() => {
     if (!open) return;
@@ -385,13 +444,25 @@ function LoanFormDialog({
     setCurrentBalance(loan ? String(loan.currentBalance) : "");
     setInterestRate(loan ? String(loan.interestRate) : "");
     setMonthlyPayment(loan ? String(loan.monthlyPayment) : "");
+    // Startdatum + löptid
+    if (loan?.startDate) {
+      setStartMonth(loan.startDate.slice(0, 7));
+    } else {
+      setStartMonth("");
+    }
+    if (loan?.startDate && loan?.endDate) {
+      const [sy, sm] = loan.startDate.slice(0, 7).split("-").map(Number);
+      const [ey, em] = loan.endDate.slice(0, 7).split("-").map(Number);
+      setTermMonths(String((ey - sy) * 12 + (em - sm)));
+    } else {
+      setTermMonths("");
+    }
     // Ägare
     if (loan?.ownerId) {
       setOwnerMode(`private:${loan.ownerId}`);
       setOwnerShare(loan.ownerShare ?? 100);
     } else {
       setOwnerMode(state.persons.length > 1 ? "shared" : `private:${state.persons[0]?.id ?? ""}`);
-      // Defaulta till inkomstbaserad fördelning
       const total = state.persons.reduce((s, p) => s + p.income, 0);
       const p0Share = total > 0 ? Math.round((state.persons[0]?.income ?? 0) / total * 100) : 50;
       setOwnerShare(loan?.ownerShare ?? p0Share);
@@ -423,8 +494,8 @@ function LoanFormDialog({
       ownerShare: isShared ? ownerShare : 100,
       icon: loan?.icon ?? LOAN_TYPE_ICON[type],
       payments: loan?.payments ?? [],
-      startDate: loan?.startDate,
-      endDate: loan?.endDate,
+      startDate: startMonth ? `${startMonth}-01` : loan?.startDate,
+      endDate: endMonth ? `${endMonth}-01` : loan?.endDate,
     });
     onOpenChange(false);
   };
@@ -477,9 +548,51 @@ function LoanFormDialog({
             </div>
             <div>
               <Label>Månadskostnad</Label>
-              <Input inputMode="decimal" value={monthlyPayment} onChange={(e) => setMonthlyPayment(e.target.value)} onFocus={e => e.target.select()} placeholder="kr/mån" />
+              <div className="flex gap-1">
+                <Input inputMode="decimal" value={monthlyPayment} onChange={(e) => setMonthlyPayment(e.target.value)} onFocus={e => e.target.select()} placeholder="kr/mån" />
+                {remainingMonths != null && Number(currentBalance) > 0 && Number(interestRate) >= 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 text-xs px-2"
+                    title="Beräkna månadsbetalning från saldo, ränta och kvarvarande löptid"
+                    onClick={() => setMonthlyPayment(String(Math.ceil(calcMonthlyPayment(Number(currentBalance), Number(interestRate), remainingMonths))))}
+                  >
+                    Beräkna
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Löptid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Startmånad</Label>
+              <Input type="month" value={startMonth} onChange={e => setStartMonth(e.target.value)} />
+            </div>
+            <div>
+              <Label>Löptid (månader)</Label>
+              <Input
+                type="number"
+                value={termMonths}
+                onChange={e => setTermMonths(e.target.value)}
+                onFocus={e => e.target.select()}
+                placeholder="t.ex. 60"
+              />
+            </div>
+          </div>
+          {endMonth && (
+            <p className="text-xs text-muted-foreground -mt-1">
+              Slutdatum: <span className="font-medium text-foreground">
+                {new Date(`${endMonth}-01`).toLocaleDateString("sv-SE", { year: "numeric", month: "long" })}
+              </span>
+              {remainingMonths != null && (
+                <> · <span className="font-medium text-foreground">{remainingMonths} månader kvar</span></>
+              )}
+            </p>
+          )}
 
           {/* Ägarskap */}
           {state.persons.length > 0 && (
