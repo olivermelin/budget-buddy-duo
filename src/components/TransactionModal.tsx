@@ -4,16 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon } from "lucide-react";
-import { format } from "date-fns";
-import { sv } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useBudget } from "@/store/budget-store";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Transaction } from "@/types/budget";
+import { DatePicker } from "@/components/DatePicker";
 
 interface Props {
   open: boolean;
@@ -27,7 +23,7 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
   const isEdit = !!transaction;
   const [type, setType] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState<Date>(new Date());
+  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [categoryId, setCategoryId] = useState(defaultCategoryId ?? state.categories[0]?.id);
   const [payerId, setPayerId] = useState(state.persons[0]?.id ?? "");
   const [description, setDescription] = useState("");
@@ -37,14 +33,14 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
       if (transaction) {
         setType(transaction.type);
         setAmount(String(transaction.amount));
-        setDate(new Date(transaction.date));
+        setDate(transaction.date.split("T")[0]);
         setCategoryId(transaction.categoryId);
         setPayerId(transaction.payerId);
         setDescription(transaction.description);
       } else {
         setType("expense");
         setAmount("");
-        setDate(new Date());
+        setDate(new Date().toISOString().split("T")[0]);
         setCategoryId(defaultCategoryId ?? state.categories[0]?.id);
         setPayerId(state.persons[0]?.id ?? "");
         setDescription("");
@@ -56,12 +52,13 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
     const num = parseFloat(amount.replace(",", "."));
     if (!num || num <= 0) { toast.error("Ange ett belopp"); return; }
     if (!description.trim()) { toast.error("Lägg till beskrivning"); return; }
+    const isoDate = `${date}T12:00:00.000Z`;
     if (transaction) {
       dispatch({
         type: "UPDATE_TX",
         id: transaction.id,
         patch: {
-          date: date.toISOString(),
+          date: isoDate,
           amount: num,
           type,
           categoryId,
@@ -74,7 +71,7 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
       dispatch({
         type: "ADD_TX",
         tx: {
-          date: date.toISOString(),
+          date: isoDate,
           amount: num,
           type,
           categoryId,
@@ -124,18 +121,8 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="tx-date">Datum</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button id="tx-date" variant="outline" className="w-full justify-start rounded-xl">
-                    <CalendarIcon className="h-4 w-4" aria-hidden="true" />
-                    {format(date, "d MMM yyyy", { locale: sv })}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={date} onSelect={d => d && setDate(d)} className={cn("p-3 pointer-events-auto")} />
-                </PopoverContent>
-              </Popover>
+              <Label>Datum</Label>
+              <DatePicker value={date} onChange={setDate} className="rounded-xl" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="tx-payer">{type === "expense" ? "Betalare" : "Mottagare"}</Label>
