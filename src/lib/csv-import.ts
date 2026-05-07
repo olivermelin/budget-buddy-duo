@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { Category, Transaction } from "@/types/budget";
+import { Category, Transaction, ImportRule } from "@/types/budget";
 
 export type BankPreset = {
   id: string;
@@ -67,6 +67,8 @@ export type StagedTx = {
   type: "expense" | "income";
   description: string;
   categoryId: string;    // suggested
+  payerId: string | null; // from rule, else null
+  matchedRuleId: string | null;
   isDuplicate: boolean;
   selected: boolean;
 };
@@ -204,7 +206,28 @@ export function suggestCategory(description: string, categories: Category[]): st
   return fallback;
 }
 
-// ─── Build staged transactions ───────────────────────────────────────────────
+// ─── Rule matching ───────────────────────────────────────────────────────────
+
+export function matchRule(description: string, rules: ImportRule[]): ImportRule | null {
+  const desc = description.toLowerCase();
+  // rules are pre-sorted by priority desc; first match wins
+  for (const r of rules) {
+    const p = r.pattern.toLowerCase().trim();
+    if (!p) continue;
+    let hit = false;
+    switch (r.matchType) {
+      case "exact": hit = desc === p; break;
+      case "starts_with": hit = desc.startsWith(p); break;
+      case "regex":
+        try { hit = new RegExp(r.pattern, "i").test(description); } catch { hit = false; }
+        break;
+      case "contains":
+      default: hit = desc.includes(p);
+    }
+    if (hit) return r;
+  }
+  return null;
+}
 
 const dedupKey = (date: string, amount: number, desc: string) =>
   `${date}__${amount.toFixed(2)}__${desc.trim().toLowerCase().slice(0, 40)}`;
@@ -214,6 +237,7 @@ export function buildStaged(
   mapping: ColumnMapping,
   categories: Category[],
   existingTx: Transaction[],
+  rules: ImportRule[] = [],
 ): StagedTx[] {
   const existing = new Set(existingTx.map((t) => dedupKey(t.date, t.amount, t.description)));
   const seen = new Set<string>();
@@ -227,7 +251,8 @@ export function buildStaged(
 
     const type: "expense" | "income" = amount < 0 ? "expense" : "income";
     const absAmount = Math.abs(amount);
-    const categoryId = suggestCategory(desc, categories);
+    const rule = matchRule(desc, rules);
+    const categoryId = rule?.categoryId || suggestCategory(desc, categories);
     const key = dedupKey(dateStr, absAmount, desc);
     const isDup = existing.has(key) || seen.has(key);
     seen.add(key);
@@ -238,6 +263,8 @@ export function buildStaged(
       type,
       description: desc,
       categoryId,
+      payerId: rule?.payerId ?? null,
+      matchedRuleId: rule?.id ?? null,
       isDuplicate: isDup,
       selected: !isDup,
     });

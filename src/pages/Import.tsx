@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Upload, FileSpreadsheet, AlertTriangle, CheckCircle2, ArrowLeft, Sparkles } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertTriangle, CheckCircle2, ArrowLeft, Sparkles, Wand2, Zap } from "lucide-react";
 import { useBudget } from "@/store/budget-store";
 import {
   parseCsvFile,
@@ -66,13 +66,45 @@ export default function Import() {
       toast.error("Mappa alla tre kolumner");
       return;
     }
-    const built = buildStaged(parsed.rows, mapping, state.categories, state.transactions);
+    const built = buildStaged(parsed.rows, mapping, state.categories, state.transactions, state.importRules);
     if (!built.length) {
       toast.error("Hittade inga giltiga rader att importera");
       return;
     }
+    const matched = built.filter(b => b.matchedRuleId).length;
     setStaged(built);
     setStep("review");
+    if (matched > 0) toast.success(`${matched} rader kategoriserade automatiskt via regler`);
+  };
+
+  const ruleMatchedCount = useMemo(() => staged.filter(s => s.matchedRuleId).length, [staged]);
+
+  const saveAsRule = (s: StagedTx) => {
+    // Use a sensible pattern: longest alphabetic word in description, or first 12 chars
+    const word = (s.description.match(/[A-Za-zÅÄÖåäö]{4,}/g) ?? [])
+      .sort((a, b) => b.length - a.length)[0] ?? s.description.slice(0, 12);
+    if (!s.categoryId) { toast.error("Sätt en kategori först"); return; }
+    dispatch({
+      type: "UPSERT_RULE",
+      rule: {
+        id: crypto.randomUUID(),
+        pattern: word,
+        matchType: "contains",
+        categoryId: s.categoryId,
+        payerId: defaultPayer || null,
+        priority: 0,
+      },
+    });
+    // Re-apply rules to remaining rows
+    setStaged(prev => prev.map(p => {
+      if (p.rowIndex === s.rowIndex || p.matchedRuleId) return p;
+      const desc = p.description.toLowerCase();
+      if (desc.includes(word.toLowerCase())) {
+        return { ...p, categoryId: s.categoryId, matchedRuleId: "pending" };
+      }
+      return p;
+    }));
+    toast.success(`Regel sparad: "${word}" → ${state.categories.find(c => c.id === s.categoryId)?.name ?? ""}`);
   };
 
   const selectedCount = useMemo(() => staged.filter((s) => s.selected).length, [staged]);
@@ -99,7 +131,7 @@ export default function Import() {
           amount: s.amount,
           type: s.type,
           categoryId: s.categoryId,
-          payerId: defaultPayer,
+          payerId: s.payerId || defaultPayer,
           description: s.description,
         },
       });
@@ -255,6 +287,11 @@ export default function Import() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3 flex-wrap">
               <Badge className="bg-primary">{selectedCount} valda</Badge>
+              {ruleMatchedCount > 0 && (
+                <Badge variant="secondary" className="gap-1">
+                  <Zap className="h-3 w-3 text-primary" /> {ruleMatchedCount} via regler
+                </Badge>
+              )}
               {dupCount > 0 && (
                 <Badge variant="secondary" className="gap-1">
                   <AlertTriangle className="h-3 w-3 text-amber-500" /> {dupCount} möjliga dubbletter
@@ -287,6 +324,7 @@ export default function Import() {
                   <th className="text-left p-2 font-medium">Beskrivning</th>
                   <th className="text-left p-2 font-medium">Kategori</th>
                   <th className="text-right p-2 font-medium">Belopp</th>
+                  <th className="p-2 w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -305,6 +343,11 @@ export default function Import() {
                     <td className="p-2">
                       <div className="flex items-center gap-2">
                         <span className="truncate max-w-[260px]">{s.description}</span>
+                        {s.matchedRuleId && (
+                          <Badge variant="outline" className="text-[10px] h-5 border-primary/40 text-primary gap-0.5">
+                            <Zap className="h-2.5 w-2.5" /> regel
+                          </Badge>
+                        )}
                         {s.isDuplicate && (
                           <Badge variant="outline" className="text-[10px] h-5 border-amber-500 text-amber-700 dark:text-amber-400">
                             dubblett
@@ -325,6 +368,19 @@ export default function Import() {
                       s.type === "income" ? "text-emerald-600" : "text-foreground",
                     )}>
                       {s.type === "income" ? "+" : "−"}{sek(s.amount)}
+                    </td>
+                    <td className="p-2 text-right">
+                      {!s.matchedRuleId && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2"
+                          title="Spara som regel — framtida transaktioner kategoriseras automatiskt"
+                          onClick={() => saveAsRule(s)}
+                        >
+                          <Wand2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}

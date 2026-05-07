@@ -88,6 +88,17 @@ export interface Settings {
   theme: "light" | "dark" | "system";
 }
 
+export type ImportRuleMatch = "contains" | "starts_with" | "exact" | "regex";
+
+export interface ImportRule {
+  id: string;
+  pattern: string;
+  matchType: ImportRuleMatch;
+  categoryId: string | null;
+  payerId: string | null;
+  priority: number;
+}
+
 export interface RecurringTransaction {
   id: string;
   description: string;
@@ -109,4 +120,5 @@ export interface AppState {
   loans: Loan[];
   subscriptionOverrides: Record<string, "active" | "cancelled">;
   recurringTransactions: RecurringTransaction[];
+  importRules: ImportRule[];
 }

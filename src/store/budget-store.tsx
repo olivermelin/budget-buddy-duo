@@ -12,7 +12,7 @@ const STORAGE_KEY = "budgetbuddy.v1";
 // ─── Supabase data loading ────────────────────────────────────────────────────
 
 async function loadHouseholdData(householdId: string): Promise<AppState> {
-  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes] = await Promise.all([
+  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes] = await Promise.all([
     supabase.from("households").select("*").eq("id", householdId).single(),
     supabase.from("household_members").select("*").eq("household_id", householdId),
     supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order"),
@@ -21,6 +21,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     supabase.from("subscription_overrides").select("*").eq("household_id", householdId),
     supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId),
     supabase.from("recurring_transactions").select("*").eq("household_id", householdId),
+    supabase.from("import_rules").select("*").eq("household_id", householdId).order("priority", { ascending: false }),
   ]);
 
   const members = (mRes.data ?? []) as Record<string, unknown>[];
@@ -131,6 +132,16 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     lastGeneratedMonth: (r.last_generated_month ?? null) as string | null,
   }));
 
+  const rules = ((ruleRes as { data?: unknown }).data ?? []) as Record<string, unknown>[];
+  const importRules: import("@/types/budget").ImportRule[] = rules.map((r) => ({
+    id: r.id as string,
+    pattern: (r.pattern ?? "") as string,
+    matchType: (r.match_type ?? "contains") as import("@/types/budget").ImportRuleMatch,
+    categoryId: (r.category_id ?? null) as string | null,
+    payerId: (r.payer_user_id ?? null) as string | null,
+    priority: Number(r.priority ?? 0),
+  }));
+
   return {
     settings: {
       householdName: ((hRes.data as Record<string, unknown> | null)?.name ?? "Mitt hushåll") as string,
@@ -144,6 +155,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     loans: mappedLoans,
     subscriptionOverrides,
     recurringTransactions,
+    importRules,
   };
 }
 
@@ -277,6 +289,20 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         .update({ last_generated_month: action.month })
         .eq("id", action.id);
       return;
+    case "UPSERT_RULE":
+      await supabase.from("import_rules").upsert({
+        id: action.rule.id,
+        household_id: householdId,
+        pattern: action.rule.pattern,
+        match_type: action.rule.matchType,
+        category_id: action.rule.categoryId,
+        payer_user_id: action.rule.payerId,
+        priority: action.rule.priority,
+      });
+      return;
+    case "DELETE_RULE":
+      await supabase.from("import_rules").delete().eq("id", action.id).eq("household_id", householdId);
+      return;
     case "UPSERT_LOAN":
       await supabase.from("loans").upsert({
         id: action.loan.id,
@@ -372,6 +398,7 @@ const emptyState: AppState = {
   loans: [],
   subscriptionOverrides: {},
   recurringTransactions: [],
+  importRules: [],
 };
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -431,6 +458,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "household_members", filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "loans",                   filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "recurring_transactions",  filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "import_rules",             filter: `household_id=eq.${householdId}` }, reload)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [householdId, reload]);

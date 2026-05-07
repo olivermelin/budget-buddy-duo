@@ -1,4 +1,4 @@
-import { AppState, Transaction, Category, Person, SavingsGoal, Settings, Loan, LoanPayment, RecurringTransaction } from "@/types/budget";
+import { AppState, Transaction, Category, Person, SavingsGoal, Settings, Loan, LoanPayment, RecurringTransaction, ImportRule } from "@/types/budget";
 
 const uid = () => crypto.randomUUID();
 
@@ -24,6 +24,8 @@ export type Action =
   | { type: "UPSERT_RECURRING"; rt: RecurringTransaction }
   | { type: "DELETE_RECURRING"; id: string }
   | { type: "MARK_RECURRING_GENERATED"; id: string; month: string }
+  | { type: "UPSERT_RULE"; rule: ImportRule }
+  | { type: "DELETE_RULE"; id: string }
   | { type: "RESET" }
   | { type: "CLEAR" }
   | { type: "HYDRATE"; state: AppState };
@@ -117,6 +119,15 @@ export function reducer(state: AppState, action: Action): AppState {
           r.id === action.id ? { ...r, lastGeneratedMonth: action.month } : r
         ),
       };
+    case "UPSERT_RULE": {
+      const exists = state.importRules.find(r => r.id === action.rule.id);
+      const next = exists
+        ? state.importRules.map(r => r.id === action.rule.id ? action.rule : r)
+        : [...state.importRules, action.rule];
+      return { ...state, importRules: next.sort((a, b) => b.priority - a.priority) };
+    }
+    case "DELETE_RULE":
+      return { ...state, importRules: state.importRules.filter(r => r.id !== action.id) };
     case "RESET":
     case "CLEAR":
       return { ...state, transactions: [], goals: [], loans: [], subscriptionOverrides: {} };
