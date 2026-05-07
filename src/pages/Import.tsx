@@ -287,6 +287,11 @@ export default function Import() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3 flex-wrap">
               <Badge className="bg-primary">{selectedCount} valda</Badge>
+              {ruleMatchedCount > 0 && (
+                <Badge variant="secondary" className="gap-1">
+                  <Zap className="h-3 w-3 text-primary" /> {ruleMatchedCount} via regler
+                </Badge>
+              )}
               {dupCount > 0 && (
                 <Badge variant="secondary" className="gap-1">
                   <AlertTriangle className="h-3 w-3 text-amber-500" /> {dupCount} möjliga dubbletter
@@ -319,6 +324,7 @@ export default function Import() {
                   <th className="text-left p-2 font-medium">Beskrivning</th>
                   <th className="text-left p-2 font-medium">Kategori</th>
                   <th className="text-right p-2 font-medium">Belopp</th>
+                  <th className="p-2 w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -337,6 +343,11 @@ export default function Import() {
                     <td className="p-2">
                       <div className="flex items-center gap-2">
                         <span className="truncate max-w-[260px]">{s.description}</span>
+                        {s.matchedRuleId && (
+                          <Badge variant="outline" className="text-[10px] h-5 border-primary/40 text-primary gap-0.5">
+                            <Zap className="h-2.5 w-2.5" /> regel
+                          </Badge>
+                        )}
                         {s.isDuplicate && (
                           <Badge variant="outline" className="text-[10px] h-5 border-amber-500 text-amber-700 dark:text-amber-400">
                             dubblett
@@ -357,6 +368,19 @@ export default function Import() {
                       s.type === "income" ? "text-emerald-600" : "text-foreground",
                     )}>
                       {s.type === "income" ? "+" : "−"}{sek(s.amount)}
+                    </td>
+                    <td className="p-2 text-right">
+                      {!s.matchedRuleId && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2"
+                          title="Spara som regel — framtida transaktioner kategoriseras automatiskt"
+                          onClick={() => saveAsRule(s)}
+                        >
+                          <Wand2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
