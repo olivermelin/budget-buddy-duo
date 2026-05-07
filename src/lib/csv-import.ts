@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { Category, Transaction } from "@/types/budget";
+import { Category, Transaction, ImportRule } from "@/types/budget";
 
 export type BankPreset = {
   id: string;

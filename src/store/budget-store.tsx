@@ -458,6 +458,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "household_members", filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "loans",                   filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "recurring_transactions",  filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "import_rules",             filter: `household_id=eq.${householdId}` }, reload)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [householdId, reload]);
