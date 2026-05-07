@@ -120,4 +120,5 @@ export interface AppState {
   loans: Loan[];
   subscriptionOverrides: Record<string, "active" | "cancelled">;
   recurringTransactions: RecurringTransaction[];
+  importRules: ImportRule[];
 }
