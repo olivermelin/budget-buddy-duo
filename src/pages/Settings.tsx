@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2, UserPlus, Copy, Check, LogOut, Pencil, Lock, Download, FileText, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { RecurringTransaction } from "@/types/budget";
+import { RecurringTransaction, ImportRule, ImportRuleMatch } from "@/types/budget";
 import { computeEffectiveBudgets } from "@/lib/analytics";
 
 const ICONS = ["🛒", "🏠", "🚗", "🎬", "🛍️", "📱", "✈️", "✨", "🍽️", "💪", "📚", "🐾", "💊", "🎁"];
