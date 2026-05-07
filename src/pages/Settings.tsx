@@ -199,10 +199,20 @@ function MembersSection() {
   const generateInvite = async () => {
     if (!householdId || !user) return;
     setInviteLoading(true);
-    const code = Array.from(crypto.getRandomValues(new Uint8Array(4)))
-      .map(b => b.toString(36).toUpperCase())
-      .join("")
-      .slice(0, 6);
+
+    // Fynd 11: Deaktivera gamla oanvända koder – max 1 aktiv kod per hushåll
+    await supabase
+      .from("household_invites")
+      .update({ expires_at: new Date().toISOString() })
+      .eq("household_id", householdId)
+      .is("used_by", null)
+      .gt("expires_at", new Date().toISOString());
+
+    // Fynd 3: 8-teckens kod med kryptografisk slump (36^8 ≈ 2,8 biljoner kombinationer)
+    const CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const bytes = crypto.getRandomValues(new Uint8Array(8));
+    const code = Array.from(bytes, b => CHARS[b % 36]).join("");
+
     const { error } = await supabase.from("household_invites").insert({
       household_id: householdId,
       invite_code: code,
@@ -244,7 +254,10 @@ function MembersSection() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        {state.persons.map(p => (
+        {state.persons.map(p => {
+          // Fynd 12: endast den inloggade personen kan redigera sin egen profil
+          const isMe = p.id === user?.id;
+          return (
           <div key={p.id} className="p-4 rounded-xl bg-muted/40 space-y-3">
             <div className="flex items-center gap-3">
               <div
@@ -255,12 +268,17 @@ function MembersSection() {
                 {p.name.slice(0, 1).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <Label htmlFor={`person-name-${p.id}`} className="text-xs">Namn</Label>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Label htmlFor={`person-name-${p.id}`} className="text-xs">Namn</Label>
+                  {!isMe && <Lock className="h-3 w-3 text-muted-foreground" aria-label="Skrivskyddad" />}
+                </div>
                 <Input
                   id={`person-name-${p.id}`}
                   value={p.name}
                   onChange={e => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { name: e.target.value } })}
-                  className="rounded-xl mt-1"
+                  className="rounded-xl"
+                  disabled={!isMe}
+                  readOnly={!isMe}
                 />
               </div>
             </div>
@@ -277,10 +295,12 @@ function MembersSection() {
                       role="radio"
                       aria-checked={selected}
                       aria-label={`Välj färg ${c}`}
-                      onClick={() => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { color: c } })}
+                      onClick={() => isMe && dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { color: c } })}
+                      disabled={!isMe}
                       className={cn(
                         "h-7 w-7 rounded-full transition ring-offset-2 ring-offset-muted/40",
                         selected ? "ring-2 ring-foreground scale-110" : "hover:scale-105",
+                        !isMe && "opacity-50 cursor-not-allowed",
                       )}
                       style={{ background: c }}
                     />
@@ -299,10 +319,13 @@ function MembersSection() {
                 onFocus={e => e.target.select()}
                 placeholder="0"
                 className="rounded-xl"
+                disabled={!isMe}
+                readOnly={!isMe}
               />
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {state.persons.length === 0 && (

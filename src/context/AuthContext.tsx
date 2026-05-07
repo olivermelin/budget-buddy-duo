@@ -92,9 +92,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [session, fetchHouseholds]);
 
   const switchHousehold = useCallback((id: string) => {
+    // Fynd 10: validera mot känd lista – förhindrar localStorage-manipulation
+    if (!households.some(h => h.id === id)) return;
     setHouseholdIdState(id);
     persistActive(id);
-  }, [persistActive]);
+  }, [households, persistActive]);
 
   const signInWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({

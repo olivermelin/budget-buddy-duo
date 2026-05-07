@@ -28,10 +28,10 @@ export default function Onboarding() {
 
     const displayName =
       user.user_metadata?.full_name ?? user.user_metadata?.name ?? user.email ?? "Person 1";
-    const code = Array.from(crypto.getRandomValues(new Uint8Array(4)))
-      .map(b => b.toString(36).toUpperCase())
-      .join("")
-      .slice(0, 6);
+    // 8-teckens kod med kryptografisk slump (36^8 ≈ 2,8 biljoner kombinationer)
+    const CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const bytes = crypto.getRandomValues(new Uint8Array(8));
+    const code = Array.from(bytes, b => CHARS[b % 36]).join("");
 
     const { data, error: rpcErr } = await supabase.rpc("create_household_with_owner", {
       hh_name: householdName.trim(),

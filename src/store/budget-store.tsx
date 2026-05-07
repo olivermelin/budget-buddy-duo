@@ -175,11 +175,12 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       if (action.patch.payerId !== undefined) patch.payer_user_id = action.patch.payerId;
       if (action.patch.description !== undefined) patch.description = action.patch.description;
       if (action.patch.isRecurring !== undefined) patch.is_recurring = action.patch.isRecurring;
-      await supabase.from("transactions").update(patch).eq("id", action.id);
+      // Fynd 7: household_id som defence-in-depth vid sidan av RLS
+      await supabase.from("transactions").update(patch).eq("id", action.id).eq("household_id", householdId);
       return;
     }
     case "DELETE_TX":
-      await supabase.from("transactions").delete().eq("id", action.id);
+      await supabase.from("transactions").delete().eq("id", action.id).eq("household_id", householdId);
       return;
     case "UPSERT_CATEGORY":
       await supabase.from("categories").upsert({
@@ -193,7 +194,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       });
       return;
     case "DELETE_CATEGORY":
-      await supabase.from("categories").delete().eq("id", action.id);
+      await supabase.from("categories").delete().eq("id", action.id).eq("household_id", householdId);
       return;
     case "UPDATE_PERSON":
       await supabase.from("household_members").update({
@@ -215,7 +216,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       });
       return;
     case "DELETE_GOAL":
-      await supabase.from("savings_goals").delete().eq("id", action.goalId);
+      await supabase.from("savings_goals").delete().eq("id", action.goalId).eq("household_id", householdId);
       return;
     case "ADD_GOAL_CONTRIB":
       await supabase.from("savings_contributions").insert({
@@ -269,7 +270,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       });
       return;
     case "DELETE_RECURRING":
-      await supabase.from("recurring_transactions").delete().eq("id", action.id);
+      await supabase.from("recurring_transactions").delete().eq("id", action.id).eq("household_id", householdId);
       return;
     case "MARK_RECURRING_GENERATED":
       await supabase.from("recurring_transactions")
@@ -296,7 +297,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       });
       return;
     case "DELETE_LOAN":
-      await supabase.from("loans").delete().eq("id", action.id);
+      await supabase.from("loans").delete().eq("id", action.id).eq("household_id", householdId);
       return;
     case "ADD_LOAN_PAYMENT":
       await supabase.from("loan_payments").insert({
@@ -388,6 +389,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   householdIdRef.current = householdId;
   const userRef = useRef(user?.id);
   userRef.current = user?.id;
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const reloadInProgress = useRef(false);
 
   const reload = useCallback(async () => {
@@ -498,12 +501,22 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     internalDispatch(processed);
 
     // När en återkommande inkomst sparas, synka personens månadsinkomst automatiskt
-    // så att 57/43-fördelningen alltid stämmer utan manuell uppdatering
+    // så att 57/43-fördelningen alltid stämmer utan manuell uppdatering.
+    // Summerar ALLA aktiva återkommande inkomster för personen – inte bara den senaste.
     if (processed.type === "UPSERT_RECURRING" && processed.rt.type === "income" && processed.rt.payerId) {
+      const payerId = processed.rt.payerId;
+      const prevRecurrings = stateRef.current.recurringTransactions;
+      // Applicera upsert lokalt för att beräkna ny summa korrekt
+      const updatedRecurrings = prevRecurrings.some(r => r.id === processed.rt.id)
+        ? prevRecurrings.map(r => r.id === processed.rt.id ? processed.rt : r)
+        : [...prevRecurrings, processed.rt];
+      const totalIncome = updatedRecurrings
+        .filter(r => r.type === "income" && r.isActive && r.payerId === payerId)
+        .reduce((sum, r) => sum + r.amount, 0);
       const incomeSync: Action = {
         type: "UPDATE_PERSON",
-        id: processed.rt.payerId,
-        patch: { income: processed.rt.amount },
+        id: payerId,
+        patch: { income: totalIncome },
       };
       internalDispatch(incomeSync);
       const hid = householdIdRef.current;

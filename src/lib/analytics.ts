@@ -73,8 +73,11 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
 }
 
 export const inMonth = (iso: string, year: number, month: number) => {
-  const d = new Date(iso);
-  return d.getFullYear() === year && d.getMonth() === month;
+  // Parsa YYYY-MM-DD direkt för att undvika UTC-till-lokal-konvertering.
+  // new Date("YYYY-MM-DD") tolkas som UTC-midnatt, vilket i t.ex. UTC-5
+  // skiftar den 1:a i månaden till föregående månads sista dag.
+  const [y, m] = iso.split("-").map(Number);
+  return y === year && m - 1 === month;
 };
 
 export interface MonthSummary {
