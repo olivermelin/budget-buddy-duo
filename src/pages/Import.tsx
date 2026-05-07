@@ -131,7 +131,7 @@ export default function Import() {
           amount: s.amount,
           type: s.type,
           categoryId: s.categoryId,
-          payerId: defaultPayer,
+          payerId: s.payerId || defaultPayer,
           description: s.description,
         },
       });
