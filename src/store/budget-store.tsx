@@ -12,7 +12,7 @@ const STORAGE_KEY = "budgetbuddy.v1";
 // ─── Supabase data loading ────────────────────────────────────────────────────
 
 async function loadHouseholdData(householdId: string): Promise<AppState> {
-  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes] = await Promise.all([
+  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes] = await Promise.all([
     supabase.from("households").select("*").eq("id", householdId).single(),
     supabase.from("household_members").select("*").eq("household_id", householdId),
     supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order"),
@@ -21,6 +21,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     supabase.from("subscription_overrides").select("*").eq("household_id", householdId),
     supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId),
     supabase.from("recurring_transactions").select("*").eq("household_id", householdId),
+    supabase.from("import_rules").select("*").eq("household_id", householdId).order("priority", { ascending: false }),
   ]);
 
   const members = (mRes.data ?? []) as Record<string, unknown>[];
@@ -131,6 +132,16 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     lastGeneratedMonth: (r.last_generated_month ?? null) as string | null,
   }));
 
+  const rules = ((ruleRes as { data?: unknown }).data ?? []) as Record<string, unknown>[];
+  const importRules: import("@/types/budget").ImportRule[] = rules.map((r) => ({
+    id: r.id as string,
+    pattern: (r.pattern ?? "") as string,
+    matchType: (r.match_type ?? "contains") as import("@/types/budget").ImportRuleMatch,
+    categoryId: (r.category_id ?? null) as string | null,
+    payerId: (r.payer_user_id ?? null) as string | null,
+    priority: Number(r.priority ?? 0),
+  }));
+
   return {
     settings: {
       householdName: ((hRes.data as Record<string, unknown> | null)?.name ?? "Mitt hushåll") as string,
@@ -144,7 +155,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     loans: mappedLoans,
     subscriptionOverrides,
     recurringTransactions,
-    importRules: [],
+    importRules,
   };
 }
 
