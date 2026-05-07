@@ -142,4 +142,6 @@ export const initialState: AppState = {
   goals: defaultGoals,
   loans: [],
   subscriptionOverrides: {},
+  recurringTransactions: [],
+  importRules: [],
 };
