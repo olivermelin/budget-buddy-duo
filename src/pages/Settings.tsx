@@ -78,6 +78,9 @@ export default function Settings() {
       {/* Recurring transactions */}
       <RecurringEditor />
 
+      {/* Import rules */}
+      <ImportRulesEditor />
+
       {/* Export data */}
       <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
         <div>
