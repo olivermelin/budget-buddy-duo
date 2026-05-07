@@ -22,10 +22,17 @@ export const monthLabel = (d: Date) =>
 export const monthShort = (d: Date) =>
   new Intl.DateTimeFormat("sv-SE", { month: "short" }).format(d).replace(".", "");
 
-export const dateLabel = (iso: string) =>
-  new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" }).format(new Date(iso));
+export const dateLabel = (iso: string) => {
+  // Parsa YYYY-MM-DD lokalt för att undvika UTC-skift (new Date("YYYY-MM-DD") = UTC midnatt)
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" }).format(new Date(y, m - 1, d));
+};
 
 export const monthKey = (d: Date | string) => {
-  const date = typeof d === "string" ? new Date(d) : d;
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  if (typeof d === "string") {
+    // Undvik UTC-skift: ta bara YYYY-MM direkt från strängen
+    const [y, m] = d.split("-");
+    return `${y}-${m.padStart(2, "0")}`;
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };

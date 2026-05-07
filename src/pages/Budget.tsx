@@ -26,8 +26,9 @@ export default function Budget() {
     ? state.transactions
         .filter(t => t.type === "expense" && t.categoryId === drillCat.id)
         .filter(t => {
-          const d = new Date(t.date);
-          return d.getFullYear() === monthDate.getFullYear() && d.getMonth() === monthDate.getMonth();
+          // Parsa YYYY-MM-DD lokalt för att undvika UTC-midnatt-skift
+          const [y, m] = t.date.split("-").map(Number);
+          return y === monthDate.getFullYear() && m - 1 === monthDate.getMonth();
         })
         .sort((a, b) => b.date.localeCompare(a.date))
     : [];

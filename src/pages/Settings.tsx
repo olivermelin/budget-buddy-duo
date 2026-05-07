@@ -110,25 +110,9 @@ export default function Settings() {
 
       {/* Danger zone */}
       <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4 border-destructive/20">
-        <h2 className="font-display font-semibold text-destructive">Återställ data</h2>
-        <p className="text-sm text-muted-foreground">All data sparas lokalt i din webbläsare. Du kan när som helst återställa.</p>
+        <h2 className="font-display font-semibold text-destructive">Farlig zon</h2>
+        <p className="text-sm text-muted-foreground">Åtgärder som inte kan ångras och raderar data permanent.</p>
         <div className="flex gap-2 flex-wrap">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" className="rounded-xl">Återställ till mockdata</Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent className="rounded-2xl">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Återställ all data?</AlertDialogTitle>
-                <AlertDialogDescription>All din nuvarande data ersätts med exempeldata. Detta går inte att ångra.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                <AlertDialogAction onClick={() => { dispatch({ type: "RESET" }); toast.success("Mockdata återställd"); }}>Återställ</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive" className="rounded-xl">Rensa all data</Button>

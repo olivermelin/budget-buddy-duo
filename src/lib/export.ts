@@ -10,11 +10,17 @@ interface ExportInput {
   persons: Person[];
 }
 
+// Parsa YYYY-MM-DD som lokal tid för att undvika UTC-midnatt-skift i datum-visning
+const parseLocalDate = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+
 const enrich = ({ transactions, categories, persons }: ExportInput) => {
   const cm = Object.fromEntries(categories.map(c => [c.id, c.name]));
   const pm = Object.fromEntries(persons.map(p => [p.id, p.name]));
   return transactions.map(t => ({
-    Datum: new Date(t.date).toLocaleDateString("sv-SE"),
+    Datum: parseLocalDate(t.date).toLocaleDateString("sv-SE"),
     Beskrivning: t.description,
     Kategori: cm[t.categoryId] ?? t.categoryId,
     Betalare: pm[t.payerId] ?? t.payerId,
