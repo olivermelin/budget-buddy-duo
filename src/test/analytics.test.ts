@@ -13,6 +13,8 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     goals: [],
     loans: [],
     subscriptionOverrides: {},
+    recurringTransactions: [],
+    importRules: [],
     ...overrides,
   };
 }

@@ -144,6 +144,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     loans: mappedLoans,
     subscriptionOverrides,
     recurringTransactions,
+    importRules: [],
   };
 }
 
@@ -372,6 +373,7 @@ const emptyState: AppState = {
   loans: [],
   subscriptionOverrides: {},
   recurringTransactions: [],
+  importRules: [],
 };
 
 // ─── Context ──────────────────────────────────────────────────────────────────
