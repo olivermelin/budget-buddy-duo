@@ -289,6 +289,20 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         .update({ last_generated_month: action.month })
         .eq("id", action.id);
       return;
+    case "UPSERT_RULE":
+      await supabase.from("import_rules").upsert({
+        id: action.rule.id,
+        household_id: householdId,
+        pattern: action.rule.pattern,
+        match_type: action.rule.matchType,
+        category_id: action.rule.categoryId,
+        payer_user_id: action.rule.payerId,
+        priority: action.rule.priority,
+      });
+      return;
+    case "DELETE_RULE":
+      await supabase.from("import_rules").delete().eq("id", action.id).eq("household_id", householdId);
+      return;
     case "UPSERT_LOAN":
       await supabase.from("loans").upsert({
         id: action.loan.id,
