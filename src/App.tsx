@@ -8,6 +8,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireHousehold } from "@/components/RequireHousehold";
 import { AppShell } from "@/components/layout/AppShell";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Dashboard from "./pages/Dashboard";
 import Budget from "./pages/Budget";
 import Transactions from "./pages/Transactions";
@@ -22,6 +23,7 @@ import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import AuthCallback from "./pages/AuthCallback";
 import Onboarding from "./pages/Onboarding";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -37,11 +39,14 @@ const App = () => (
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/integritetspolicy" element={<PrivacyPolicy />} />
               <Route
                 path="/onboarding"
                 element={
                   <RequireAuth>
-                    <Onboarding />
+                    <ErrorBoundary>
+                      <Onboarding />
+                    </ErrorBoundary>
                   </RequireAuth>
                 }
               />
@@ -54,17 +59,17 @@ const App = () => (
                   </RequireAuth>
                 }
               >
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/budget" element={<Budget />} />
-                <Route path="/transaktioner" element={<Transactions />} />
-                <Route path="/parlage" element={<CoupleMode />} />
-                <Route path="/sparmal" element={<Goals />} />
-                <Route path="/lan" element={<Loans />} />
-                <Route path="/import" element={<Import />} />
-                <Route path="/statistik" element={<Statistics />} />
-                <Route path="/arsoversikt" element={<YearOverview />} />
-                <Route path="/prenumerationer" element={<Subscriptions />} />
-                <Route path="/installningar" element={<Settings />} />
+                <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+                <Route path="/budget" element={<ErrorBoundary><Budget /></ErrorBoundary>} />
+                <Route path="/transaktioner" element={<ErrorBoundary><Transactions /></ErrorBoundary>} />
+                <Route path="/parlage" element={<ErrorBoundary><CoupleMode /></ErrorBoundary>} />
+                <Route path="/sparmal" element={<ErrorBoundary><Goals /></ErrorBoundary>} />
+                <Route path="/lan" element={<ErrorBoundary><Loans /></ErrorBoundary>} />
+                <Route path="/import" element={<ErrorBoundary><Import /></ErrorBoundary>} />
+                <Route path="/statistik" element={<ErrorBoundary><Statistics /></ErrorBoundary>} />
+                <Route path="/arsoversikt" element={<ErrorBoundary><YearOverview /></ErrorBoundary>} />
+                <Route path="/prenumerationer" element={<ErrorBoundary><Subscriptions /></ErrorBoundary>} />
+                <Route path="/installningar" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

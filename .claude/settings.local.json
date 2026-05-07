@@ -5,7 +5,8 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(npm install *)",
       "PowerShell(git add \"C:\\\\Projekt\\\\budget-buddy-duo\\\\.claude\\\\worktrees\\\\competent-shirley-29922d\\\\src\\\\pages\\\\Loans.tsx\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

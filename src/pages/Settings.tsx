@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { exportTransactionsXLSX, exportTransactionsPDF } from "@/lib/export";
 import { useBudget } from "@/store/budget-store";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, UserPlus, Copy, Check, LogOut, Pencil, Lock } from "lucide-react";
+import { Plus, Trash2, UserPlus, Copy, Check, LogOut, Pencil, Lock, Download, FileText, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { RecurringTransaction } from "@/types/budget";
@@ -77,6 +78,30 @@ export default function Settings() {
       {/* Recurring transactions */}
       <RecurringEditor />
 
+      {/* Export data */}
+      <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
+        <div>
+          <h2 className="font-display font-semibold">Exportera data</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Ladda ner alla transaktioner — din rätt enligt GDPR Art. 20.</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() => exportTransactionsXLSX({ transactions: state.transactions, categories: state.categories, persons: state.persons })}
+          >
+            <FileText className="h-4 w-4" /> Exportera XLSX
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() => exportTransactionsPDF({ transactions: state.transactions, categories: state.categories, persons: state.persons })}
+          >
+            <Download className="h-4 w-4" /> Exportera PDF
+          </Button>
+        </div>
+      </Card>
+
       {/* Account */}
       <AccountSection />
 
@@ -125,6 +150,19 @@ export default function Settings() {
 function AccountSection() {
   const { user, signOut, householdId, refreshHousehold } = useAuth();
   const [leaving, setLeaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteAccount = async () => {
+    if (!user) return;
+    setDeleting(true);
+    const { error } = await supabase.rpc("delete_my_account");
+    if (error) {
+      toast.error("Kunde inte radera kontot", { description: error.message });
+      setDeleting(false);
+      return;
+    }
+    await signOut();
+  };
 
   const leaveHousehold = async () => {
     if (!user || !householdId) return;
@@ -179,6 +217,35 @@ function AccountSection() {
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 {leaving ? "Lämnar…" : "Lämna gruppen"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Radera konto */}
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" className="rounded-xl" disabled={deleting}>
+              <UserX className="h-4 w-4" /> {deleting ? "Raderar…" : "Radera mitt konto"}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent className="rounded-2xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Radera konto permanent?</AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <span className="block">Du raderas från alla hushåll och all din persondata tas bort omedelbart.</span>
+                <span className="block">Dina transaktioner behålls anonymt — kopplade till hushållet, inte till dig.</span>
+                <span className="block font-medium text-destructive">Detta går inte att ångra.</span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Avbryt</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={deleting}
+                onClick={deleteAccount}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleting ? "Raderar…" : "Ja, radera mitt konto"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
