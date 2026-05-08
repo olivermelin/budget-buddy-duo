@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { TransactionModal } from "@/components/TransactionModal";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { GroupSwitcher } from "@/components/GroupSwitcher";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +122,7 @@ export function AppShell() {
             <div className="font-display font-bold">{pageTitle || "BudgetBuddy"}</div>
           </div>
           <div className="flex items-center gap-1">
+            <NotificationCenter />
             <Button variant="ghost" size="icon" onClick={toggleTheme} className="h-9 w-9" aria-label={isDark ? "Byt till ljust läge" : "Byt till mörkt läge"}>
               {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
