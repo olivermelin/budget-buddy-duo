@@ -5,8 +5,10 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil, X, Tag, UserCog } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { exportTransactionsPDF, exportTransactionsXLSX } from "@/lib/export";
 import { cn } from "@/lib/utils";
@@ -21,6 +23,8 @@ export default function Transactions() {
   const [month, setMonth] = useState<string>("all");
   const [cat, setCat] = useState<string>("all");
   const [person, setPerson] = useState<string>("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const months = useMemo(() => {
     const set = new Set<string>();
@@ -42,6 +46,50 @@ export default function Transactions() {
   const personMap = Object.fromEntries(state.persons.map(p => [p.id, p]));
 
   const total = filtered.reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
+
+  const visibleIds = useMemo(() => filtered.map(t => t.id), [filtered]);
+  const allSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
+  const someSelected = selected.size > 0;
+
+  const toggleOne = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  };
+
+  const toggleAll = () => {
+    if (allSelected) {
+      const next = new Set(selected);
+      for (const id of visibleIds) next.delete(id);
+      setSelected(next);
+    } else {
+      const next = new Set(selected);
+      for (const id of visibleIds) next.add(id);
+      setSelected(next);
+    }
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const bulkSetCategory = (categoryId: string) => {
+    for (const id of selected) dispatch({ type: "UPDATE_TX", id, patch: { categoryId } });
+    toast.success(`${selected.size} transaktioner uppdaterade`);
+    clearSelection();
+  };
+
+  const bulkSetPayer = (payerId: string) => {
+    for (const id of selected) dispatch({ type: "UPDATE_TX", id, patch: { payerId } });
+    toast.success(`${selected.size} transaktioner uppdaterade`);
+    clearSelection();
+  };
+
+  const bulkDelete = () => {
+    const count = selected.size;
+    for (const id of selected) dispatch({ type: "DELETE_TX", id });
+    toast.success(`${count} transaktioner borttagna`);
+    clearSelection();
+    setConfirmDelete(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -98,13 +146,32 @@ export default function Transactions() {
         </div>
       </Card>
 
+      {filtered.length > 0 && (
+        <div className="flex items-center gap-2 px-1">
+          <Checkbox
+            checked={allSelected}
+            onCheckedChange={toggleAll}
+            aria-label="Markera alla synliga"
+          />
+          <span className="text-xs text-muted-foreground">
+            {someSelected ? `${selected.size} markerade` : "Markera alla synliga"}
+          </span>
+        </div>
+      )}
+
       <Card className="rounded-2xl shadow-soft border-0 overflow-hidden divide-y divide-border">
         {filtered.length === 0 && <div className="p-10 text-center text-sm text-muted-foreground">Inga transaktioner matchar filtren.</div>}
         {filtered.map(t => {
           const c = catMap[t.categoryId];
           const p = personMap[t.payerId];
+          const isSel = selected.has(t.id);
           return (
-            <div key={t.id} className="flex items-center gap-3 p-4 hover:bg-muted/30 group transition">
+            <div key={t.id} className={cn("flex items-center gap-3 p-4 hover:bg-muted/30 group transition", isSel && "bg-primary/5")}>
+              <Checkbox
+                checked={isSel}
+                onCheckedChange={() => toggleOne(t.id)}
+                aria-label={`Markera ${t.description}`}
+              />
               <button
                 type="button"
                 onClick={() => setEditing(t)}
@@ -148,6 +215,66 @@ export default function Transactions() {
           );
         })}
       </Card>
+
+      {/* Bulk-actions bar */}
+      {someSelected && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-20 md:bottom-6 z-40 px-3 w-[min(680px,95vw)]">
+          <div className="rounded-2xl bg-popover border border-border shadow-glow px-3 py-2 flex items-center gap-2 flex-wrap">
+            <Button variant="ghost" size="icon" onClick={clearSelection} className="h-8 w-8" aria-label="Avmarkera">
+              <X className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium pr-2 border-r border-border">{selected.size} markerade</span>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="rounded-lg"><Tag className="h-4 w-4" /> Kategori</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-[300px] overflow-y-auto">
+                {state.categories.map(c => (
+                  <DropdownMenuItem key={c.id} onClick={() => bulkSetCategory(c.id)}>
+                    <span className="mr-1">{c.icon}</span> {c.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="rounded-lg"><UserCog className="h-4 w-4" /> Person</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {state.persons.map(p => (
+                  <DropdownMenuItem key={p.id} onClick={() => bulkSetPayer(p.id)}>{p.name}</DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-lg text-destructive hover:text-destructive ml-auto"
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 className="h-4 w-4" /> Ta bort
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ta bort {selected.size} transaktioner?</AlertDialogTitle>
+            <AlertDialogDescription>Detta går inte att ångra.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Avbryt</AlertDialogCancel>
+            <AlertDialogAction onClick={bulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ta bort
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <TransactionModal open={open} onOpenChange={setOpen} />
       <TransactionModal
