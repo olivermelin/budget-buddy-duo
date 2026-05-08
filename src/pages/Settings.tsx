@@ -615,6 +615,92 @@ function RecurringEditor() {
   );
 }
 
+function ImportRulesEditor() {
+  const { state, dispatch } = useBudget();
+  const [pattern, setPattern] = useState("");
+  const [matchType, setMatchType] = useState<ImportRuleMatch>("contains");
+  const [categoryId, setCategoryId] = useState<string>(state.categories[0]?.id ?? "");
+  const [payerId, setPayerId] = useState<string>("");
+
+  const add = () => {
+    if (!pattern.trim()) { toast.error("Ange ett mönster"); return; }
+    const rule: ImportRule = {
+      id: crypto.randomUUID(),
+      pattern: pattern.trim(),
+      matchType,
+      categoryId: categoryId || null,
+      payerId: payerId || null,
+      priority: (state.importRules[0]?.priority ?? 0) + 1,
+    };
+    dispatch({ type: "UPSERT_RULE", rule });
+    setPattern("");
+    toast.success("Regel skapad");
+  };
+
+  return (
+    <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
+      <div>
+        <h2 className="font-display font-semibold">Importregler</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Auto-kategorisera transaktioner vid CSV-import baserat på beskrivningen.</p>
+      </div>
+
+      <div className="space-y-2">
+        {state.importRules.length === 0 && (
+          <div className="text-sm text-muted-foreground p-3 rounded-xl bg-muted/30">
+            Inga regler än. Lägg till din första nedan.
+          </div>
+        )}
+        {state.importRules.map(r => {
+          const c = state.categories.find(c => c.id === r.categoryId);
+          const p = state.persons.find(p => p.id === r.payerId);
+          return (
+            <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl bg-muted/30">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">"{r.pattern}"</div>
+                <div className="text-xs text-muted-foreground">
+                  {r.matchType} → {c ? `${c.icon} ${c.name}` : "ingen kategori"}{p ? ` · ${p.name}` : ""}
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => dispatch({ type: "DELETE_RULE", id: r.id })} aria-label="Ta bort regel">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+        <Input placeholder="Mönster, t.ex. WILLYS" value={pattern} onChange={e => setPattern(e.target.value)} className="rounded-xl md:col-span-2" />
+        <Select value={matchType} onValueChange={v => setMatchType(v as ImportRuleMatch)}>
+          <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="contains">Innehåller</SelectItem>
+            <SelectItem value="starts_with">Börjar med</SelectItem>
+            <SelectItem value="exact">Exakt</SelectItem>
+            <SelectItem value="regex">Regex</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={categoryId} onValueChange={setCategoryId}>
+          <SelectTrigger className="rounded-xl"><SelectValue placeholder="Kategori" /></SelectTrigger>
+          <SelectContent>
+            {state.categories.map(c => <SelectItem key={c.id} value={c.id}>{c.icon} {c.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={payerId || "none"} onValueChange={v => setPayerId(v === "none" ? "" : v)}>
+          <SelectTrigger className="rounded-xl"><SelectValue placeholder="Person" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Ingen</SelectItem>
+            {state.persons.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex justify-end">
+        <Button onClick={add} className="bg-gradient-primary rounded-xl"><Plus className="h-4 w-4" /> Lägg till regel</Button>
+      </div>
+    </Card>
+  );
+}
+
 function CategoriesEditor() {
   const { state, dispatch } = useBudget();
   const [adding, setAdding] = useState(false);

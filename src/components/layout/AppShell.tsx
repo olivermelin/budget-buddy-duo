@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { TransactionModal } from "@/components/TransactionModal";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { GroupSwitcher } from "@/components/GroupSwitcher";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
@@ -66,7 +67,8 @@ export function AppShell() {
           <div className="h-10 w-10 rounded-2xl bg-gradient-primary flex items-center justify-center shadow-glow shrink-0">
             <Wallet className="h-5 w-5 text-white" />
           </div>
-          <div className="font-display font-bold text-lg leading-none">BudgetBuddy</div>
+          <div className="font-display font-bold text-lg leading-none flex-1">BudgetBuddy</div>
+          <NotificationCenter />
         </div>
         <div className="px-3 pb-3">
           <GroupSwitcher />
@@ -121,6 +123,7 @@ export function AppShell() {
             <div className="font-display font-bold">{pageTitle || "BudgetBuddy"}</div>
           </div>
           <div className="flex items-center gap-1">
+            <NotificationCenter />
             <Button variant="ghost" size="icon" onClick={toggleTheme} className="h-9 w-9" aria-label={isDark ? "Byt till ljust läge" : "Byt till mörkt läge"}>
               {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
