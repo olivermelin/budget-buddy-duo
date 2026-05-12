@@ -1,3 +1,7 @@
+# Bun (projektet använder npm)
+bun.lock
+bun.lockb
+
 # Logs
 logs
 *.log
