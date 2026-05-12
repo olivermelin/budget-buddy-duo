@@ -327,6 +327,12 @@ export default function Loans() {
           </Card>
         </>
       )}
+        </TabsContent>
+
+        <TabsContent value="calculator" className="mt-0">
+          <MortgageCalculator />
+        </TabsContent>
+      </Tabs>
 
       <LoanFormDialog
         open={createOpen}
