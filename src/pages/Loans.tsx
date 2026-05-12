@@ -121,6 +121,13 @@ export default function Loans() {
 
   return (
     <div className="space-y-6">
+      <Tabs defaultValue="loans" className="space-y-6">
+        <TabsList className="rounded-xl">
+          <TabsTrigger value="loans" className="rounded-lg">Mina lån</TabsTrigger>
+          <TabsTrigger value="calculator" className="rounded-lg">🏠 Bostadskalkyl</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="loans" className="space-y-6 mt-0">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold">Lån & skulder</h1>
