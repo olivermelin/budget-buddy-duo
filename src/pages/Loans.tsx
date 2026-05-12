@@ -13,9 +13,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Plus, Trash2, TrendingDown, AlertTriangle, Banknote, Calendar, Sparkles } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { MonthPicker } from "@/components/MonthPicker";
+import { MortgageCalculator } from "@/components/MortgageCalculator";
 
 const LOAN_TYPE_LABEL: Record<LoanType, string> = {
   mortgage: "Bolån",
@@ -119,6 +121,13 @@ export default function Loans() {
 
   return (
     <div className="space-y-6">
+      <Tabs defaultValue="loans" className="space-y-6">
+        <TabsList className="rounded-xl">
+          <TabsTrigger value="loans" className="rounded-lg">Mina lån</TabsTrigger>
+          <TabsTrigger value="calculator" className="rounded-lg">🏠 Bostadskalkyl</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="loans" className="space-y-6 mt-0">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold">Lån & skulder</h1>
@@ -318,6 +327,12 @@ export default function Loans() {
           </Card>
         </>
       )}
+        </TabsContent>
+
+        <TabsContent value="calculator" className="mt-0">
+          <MortgageCalculator />
+        </TabsContent>
+      </Tabs>
 
       <LoanFormDialog
         open={createOpen}
