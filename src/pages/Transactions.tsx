@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil, X, Tag, UserCog } from "lucide-react";
+import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil, X, Tag, UserCog, Lock } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { exportTransactionsPDF, exportTransactionsXLSX } from "@/lib/export";
 import { cn } from "@/lib/utils";
@@ -183,7 +183,12 @@ export default function Transactions() {
                   style={{ backgroundColor: `hsl(${c?.color} / 0.15)` }}
                 >{c?.icon}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{t.description}</div>
+                  <div className="font-medium truncate flex items-center gap-1.5">
+                    {t.isPrivate && (
+                      <Lock className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Privat — syns endast för dig" />
+                    )}
+                    <span className="truncate">{t.description}</span>
+                  </div>
                   <div className="text-xs text-muted-foreground">{dateLabel(t.date)} · {p?.name} · {c?.name}</div>
                 </div>
               </button>

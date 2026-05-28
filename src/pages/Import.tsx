@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Upload, FileSpreadsheet, AlertTriangle, CheckCircle2, ArrowLeft, Sparkles, Wand2, Zap } from "lucide-react";
 import { useBudget } from "@/store/budget-store";
+import { useAuth } from "@/context/AuthContext";
 import {
   parseCsvFile,
   buildStaged,
@@ -22,6 +23,7 @@ type Step = "upload" | "map" | "review";
 
 export default function Import() {
   const { state, dispatch } = useBudget();
+  const { user } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("upload");
   const [fileName, setFileName] = useState("");
@@ -93,6 +95,7 @@ export default function Import() {
         categoryId: s.categoryId,
         payerId: defaultPayer || null,
         priority: 0,
+        isPrivate: s.isPrivate,  // bevara privatflaggan från den matchade raden
       },
     });
     // Re-apply rules to remaining rows
@@ -100,7 +103,7 @@ export default function Import() {
       if (p.rowIndex === s.rowIndex || p.matchedRuleId) return p;
       const desc = p.description.toLowerCase();
       if (desc.includes(word.toLowerCase())) {
-        return { ...p, categoryId: s.categoryId, matchedRuleId: "pending" };
+        return { ...p, categoryId: s.categoryId, matchedRuleId: "pending", isPrivate: s.isPrivate };
       }
       return p;
     }));
@@ -124,6 +127,10 @@ export default function Import() {
     if (!defaultPayer) { toast.error("Välj betalare"); return; }
     setImporting(true);
     for (const s of toImport) {
+      // En privat rad måste tillhöra den inloggade användaren — annars överskriver
+      // databasens trigger ändå owner_user_id, så vi sätter payerId till samma värde
+      // för att undvika att raden visas som sambons utgift.
+      const effectivePayer = s.isPrivate && user?.id ? user.id : (s.payerId || defaultPayer);
       dispatch({
         type: "ADD_TX",
         tx: {
@@ -131,8 +138,10 @@ export default function Import() {
           amount: s.amount,
           type: s.type,
           categoryId: s.categoryId,
-          payerId: s.payerId || defaultPayer,
+          payerId: effectivePayer,
           description: s.description,
+          isPrivate: s.isPrivate,
+          ownerId: s.isPrivate ? user?.id : undefined,
         },
       });
     }

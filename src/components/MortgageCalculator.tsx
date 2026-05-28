@@ -4,6 +4,7 @@ import { sek, pct } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -821,15 +822,7 @@ function NumberField({
         <Label className="text-sm">{label}</Label>
         {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
       </div>
-      <Input
-        inputMode="decimal"
-        value={value === 0 ? "" : value}
-        onChange={e => {
-          const v = e.target.value.replace(/\s/g, "").replace(",", ".");
-          onChange(Number(v) || 0);
-        }}
-        onFocus={e => e.target.select()}
-      />
+      <NumericInput value={value} onChange={onChange} />
       {help && <p className="text-[11px] text-muted-foreground mt-1">{help}</p>}
     </div>
   );

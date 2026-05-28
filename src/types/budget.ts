@@ -11,6 +11,7 @@ export interface Category {
   color: string; // hsl chunk like "158 64% 42%"
   budget: number; // monthly SEK
   isFixed?: boolean;
+  isIncome?: boolean;
 }
 
 export interface Person {
@@ -29,6 +30,8 @@ export interface Transaction {
   payerId: string; // person id
   description: string;
   isRecurring?: boolean; // marker if user identifies as subscription
+  isPrivate?: boolean;   // syns endast för ägaren, ingår inte i split
+  ownerId?: string;      // user_id för ägaren (sätts på server för privata)
 }
 
 export interface SavingsGoal {
@@ -51,6 +54,7 @@ export interface Subscription {
   occurrences: number;
   lastDate: string;
   status: "active" | "cancelled";
+  isPrivate?: boolean;
 }
 
 export type LoanType = "mortgage" | "car" | "student" | "personal" | "credit_card" | "other";
@@ -74,8 +78,11 @@ export interface Loan {
   interestRate: number;       // annual %
   monthlyPayment: number;     // total monthly
   monthlyAmortization: number;
+  monthlyFee: number;         // månadsavgift förening
+  downPayment?: number;       // kontantinsats
   startDate?: string;
   endDate?: string;
+  rateFixedUntil?: string;    // YYYY-MM-DD, när räntebindningen löper ut
   ownerId?: string | null;    // null = shared
   ownerShare: number;         // % share if shared
   icon: string;
@@ -97,6 +104,7 @@ export interface ImportRule {
   categoryId: string | null;
   payerId: string | null;
   priority: number;
+  isPrivate?: boolean;
 }
 
 export interface RecurringTransaction {
@@ -109,6 +117,8 @@ export interface RecurringTransaction {
   dayOfMonth: number; // 1–31
   isActive: boolean;
   lastGeneratedMonth: string | null; // "YYYY-MM", null = aldrig genererad
+  isPrivate?: boolean;
+  ownerId?: string;
 }
 
 export interface AppState {

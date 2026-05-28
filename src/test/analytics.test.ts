@@ -364,4 +364,44 @@ describe("calcSplit", () => {
     const result = calcSplit(state, 2026, 2);
     expect(result.settlements).toEqual([]);
   });
+
+  it("exkluderar privata utgifter helt från delningen", () => {
+    const state = makeState({
+      settings: { householdName: "Test", splitMode: "50/50", theme: "system" },
+      persons: [makePerson({ id: "p-1" }), makePerson({ id: "p-2" })],
+      categories: [makeCategory({ id: "cat-1" })],
+      transactions: [
+        makeTx({ date: "2026-03-10", amount: 1000, type: "expense", payerId: "p-1" }),
+        // p-1 har dessutom en privat utgift på 5000 — får inte påverka split
+        makeTx({ date: "2026-03-12", amount: 5000, type: "expense", payerId: "p-1", isPrivate: true }),
+      ],
+    });
+    const result = calcSplit(state, 2026, 2);
+    expect(result.total).toBe(1000);            // privata räknas inte med
+    expect(result.variableTotal).toBe(1000);
+    expect(result.paid["p-1"]).toBe(1000);      // betalningen för den privata raden räknas inte
+    expect(result.share["p-1"]).toBe(500);
+    expect(result.share["p-2"]).toBe(500);
+    expect(result.settlements).toHaveLength(1);
+    expect(result.settlements[0].amount).toBe(500); // bara halva 1000 — inget extra från privata
+  });
+});
+
+describe("summarizeMonth — privata utgifter", () => {
+  it("räknar privata utgifter i `personal` men inte i delade totaler", () => {
+    const state = makeState({
+      persons: [makePerson({ id: "p-1" })],
+      categories: [makeCategory({ id: "cat-1", isFixed: false })],
+      transactions: [
+        makeTx({ date: "2026-03-10", amount: 800, type: "expense", payerId: "p-1" }),
+        makeTx({ date: "2026-03-12", amount: 300, type: "expense", payerId: "p-1", isPrivate: true }),
+      ],
+    });
+    const summary = summarizeMonth(state, 2026, 2);
+    expect(summary.variable).toBe(800);
+    expect(summary.expenses).toBe(800);
+    expect(summary.personal.variable).toBe(300);
+    expect(summary.personal.expenses).toBe(300);
+    expect(summary.personal.byCategory["cat-1"]).toBe(300);
+  });
 });

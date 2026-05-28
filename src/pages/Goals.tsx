@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, Trophy, LineChart as LineChartIcon, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -255,7 +256,7 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const { state, dispatch } = useBudget();
   const { user } = useAuth();
   const [name, setName] = useState("");
-  const [target, setTarget] = useState("");
+  const [target, setTarget] = useState(0);
   const [icon, setIcon] = useState("🎯");
   const [date, setDate] = useState("");
   const [ownerId, setOwnerId] = useState<string | null>(null); // null = gemensamt
@@ -263,13 +264,13 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
-      setName(""); setTarget(""); setDate(""); setIcon("🎯");
+      setName(""); setTarget(0); setDate(""); setIcon("🎯");
       setOwnerId(null);
     }
   }, [open]);
 
   const submit = () => {
-    const t = parseFloat(target.replace(",", "."));
+    const t = target;
     if (!name.trim() || !t) { toast.error("Fyll i namn och målsumma"); return; }
     dispatch({
       type: "UPSERT_GOAL",
@@ -300,7 +301,7 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             </div>
           </div>
           <div className="space-y-2"><Label>Namn</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="T.ex. Resa till Italien" className="rounded-xl" /></div>
-          <div className="space-y-2"><Label>Målsumma (SEK)</Label><Input inputMode="decimal" value={target} onChange={e => setTarget(e.target.value)} onFocus={e => e.target.select()} placeholder="50000" className="rounded-xl" /></div>
+          <div className="space-y-2"><Label>Målsumma (SEK)</Label><NumericInput value={target} onChange={setTarget} placeholder="50 000" className="rounded-xl" /></div>
           <div className="space-y-2"><Label>Måldatum (valfritt)</Label><DatePicker value={date} onChange={setDate} placeholder="Välj måldatum" className="rounded-xl" /></div>
 
           {/* Owner selector */}
@@ -364,7 +365,7 @@ function ContribDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: (
     const match = state.persons.find(p => p.id === user?.id);
     return match?.id ?? state.persons[0]?.id ?? "";
   }, [state.persons, user?.id]);
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(0);
   const [personId, setPersonId] = useState(defaultPersonId);
 
   // Reset person when dialog reopens
@@ -376,12 +377,12 @@ function ContribDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: (
   );
 
   const submit = () => {
-    const n = parseFloat(amount.replace(",", "."));
+    const n = amount;
     if (!n || !goal || !personId) return;
     dispatch({ type: "ADD_GOAL_CONTRIB", goalId: goal.id, amount: n, personId });
     const who = personById[personId]?.name ?? "";
     toast.success(`+${sek(n)} till ${goal.name}${who ? ` · ${who}` : ""}`);
-    setAmount(""); onClose();
+    setAmount(0); onClose();
   };
 
   return (
@@ -391,7 +392,7 @@ function ContribDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: (
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="contrib-amount">Belopp att lägga till</Label>
-            <Input id="contrib-amount" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} onFocus={e => e.target.select()} placeholder="2000" className="text-2xl h-14 font-display font-bold rounded-xl" autoFocus />
+            <NumericInput id="contrib-amount" value={amount} onChange={setAmount} placeholder="2 000" className="text-2xl h-14 font-display font-bold rounded-xl" autoFocus />
           </div>
 
           {state.persons.length > 1 && (
@@ -439,7 +440,7 @@ function ContribDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: (
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Avbryt</Button>
-          <Button onClick={submit} disabled={!amount || !personId} className="bg-gradient-primary rounded-xl">Lägg till</Button>
+          <Button onClick={submit} disabled={amount <= 0 || !personId} className="bg-gradient-primary rounded-xl">Lägg till</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -490,21 +491,21 @@ function Sparkline({ snapshots }: { snapshots: SavingsGoal["snapshots"] }) {
 
 function SnapshotDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: () => void }) {
   const { dispatch } = useBudget();
-  const [balance, setBalance] = useState("");
+  const [balance, setBalance] = useState(0);
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
 
   useEffect(() => {
     if (goal) {
-      setBalance(String(goal.saved));
+      setBalance(goal.saved);
       setDate(new Date().toISOString().split("T")[0]);
       setNote("");
     }
   }, [goal]);
 
   const submit = () => {
-    const n = parseFloat(balance.replace(",", "."));
-    if (isNaN(n) || n < 0 || !goal || !date) {
+    const n = balance;
+    if (n < 0 || !goal || !date) {
       toast.error("Ange ett giltigt saldo och datum");
       return;
     }
@@ -527,12 +528,10 @@ function SnapshotDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: 
           </p>
           <div className="space-y-2">
             <Label htmlFor="snap-balance">Saldo (SEK)</Label>
-            <Input
+            <NumericInput
               id="snap-balance"
-              inputMode="decimal"
               value={balance}
-              onChange={e => setBalance(e.target.value)}
-              onFocus={e => e.target.select()}
+              onChange={setBalance}
               className="text-2xl h-14 font-display font-bold rounded-xl"
               autoFocus
             />

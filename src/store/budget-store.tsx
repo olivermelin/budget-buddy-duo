@@ -49,6 +49,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     color: c.color as string,
     budget: c.budget_monthly as number,
     isFixed: c.is_fixed as boolean,
+    isIncome: (c.is_income ?? false) as boolean,
   }));
 
   const transactions: Transaction[] = txs.map((t) => ({
@@ -60,6 +61,8 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     payerId: (t.payer_user_id ?? "") as string,
     description: (t.description ?? "") as string,
     isRecurring: (t.is_recurring ?? false) as boolean,
+    isPrivate: (t.is_private ?? false) as boolean,
+    ownerId: (t.owner_user_id ?? undefined) as string | undefined,
   }));
 
   const mappedGoals: SavingsGoal[] = goals.map((g) => ({
@@ -105,8 +108,11 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     interestRate: Number(l.interest_rate ?? 0),
     monthlyPayment: Number(l.monthly_payment ?? 0),
     monthlyAmortization: Number(l.monthly_amortization ?? 0),
+    monthlyFee: Number(l.monthly_fee ?? 0),
+    downPayment: l.down_payment != null ? Number(l.down_payment) : undefined,
     startDate: (l.start_date ?? undefined) as string | undefined,
     endDate: (l.end_date ?? undefined) as string | undefined,
+    rateFixedUntil: (l.rate_fixed_until ?? undefined) as string | undefined,
     ownerId: (l.owner_user_id ?? null) as string | null,
     ownerShare: Number(l.owner_share ?? 100),
     icon: (l.icon ?? "💰") as string,
@@ -130,6 +136,8 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     dayOfMonth: Number(r.day_of_month),
     isActive: Boolean(r.is_active),
     lastGeneratedMonth: (r.last_generated_month ?? null) as string | null,
+    isPrivate: (r.is_private ?? false) as boolean,
+    ownerId: (r.owner_user_id ?? undefined) as string | undefined,
   }));
 
   const rules = ((ruleRes as { data?: unknown }).data ?? []) as Record<string, unknown>[];
@@ -140,6 +148,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     categoryId: (r.category_id ?? null) as string | null,
     payerId: (r.payer_user_id ?? null) as string | null,
     priority: Number(r.priority ?? 0),
+    isPrivate: (r.is_private ?? false) as boolean,
   }));
 
   return {
@@ -175,6 +184,8 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         payer_user_id: tx.payerId || userId,
         description: tx.description,
         is_recurring: tx.isRecurring ?? false,
+        is_private: tx.isPrivate ?? false,
+        owner_user_id: tx.ownerId ?? userId,
       });
       return;
     }
@@ -187,6 +198,12 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       if (action.patch.payerId !== undefined) patch.payer_user_id = action.patch.payerId;
       if (action.patch.description !== undefined) patch.description = action.patch.description;
       if (action.patch.isRecurring !== undefined) patch.is_recurring = action.patch.isRecurring;
+      if (action.patch.isPrivate !== undefined) {
+        patch.is_private = action.patch.isPrivate;
+        // Synka owner_user_id: sätt vid privatisering, rensa vid avprivatisering.
+        // Triggern enforce_private_owner sköter INSERT men inte clearning vid false.
+        patch.owner_user_id = action.patch.isPrivate ? (action.patch.ownerId ?? userId) : null;
+      }
       // Fynd 7: household_id som defence-in-depth vid sidan av RLS
       await supabase.from("transactions").update(patch).eq("id", action.id).eq("household_id", householdId);
       return;
@@ -203,6 +220,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         color: action.cat.color,
         budget_monthly: action.cat.budget,
         is_fixed: action.cat.isFixed ?? false,
+        is_income: action.cat.isIncome ?? false,
       });
       return;
     case "DELETE_CATEGORY":
@@ -279,6 +297,8 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         day_of_month: action.rt.dayOfMonth,
         is_active: action.rt.isActive,
         last_generated_month: action.rt.lastGeneratedMonth ?? null,
+        is_private: action.rt.isPrivate ?? false,
+        owner_user_id: action.rt.ownerId ?? userId,
       });
       return;
     case "DELETE_RECURRING":
@@ -298,6 +318,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         category_id: action.rule.categoryId,
         payer_user_id: action.rule.payerId,
         priority: action.rule.priority,
+        is_private: action.rule.isPrivate ?? false,
       });
       return;
     case "DELETE_RULE":
@@ -315,8 +336,11 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         interest_rate: action.loan.interestRate,
         monthly_payment: action.loan.monthlyPayment,
         monthly_amortization: action.loan.monthlyAmortization,
+        monthly_fee: action.loan.monthlyFee,
+        down_payment: action.loan.downPayment ?? null,
         start_date: action.loan.startDate ?? null,
         end_date: action.loan.endDate ?? null,
+        rate_fixed_until: action.loan.rateFixedUntil ?? null,
         owner_user_id: action.loan.ownerId ?? null,
         owner_share: action.loan.ownerShare,
         icon: action.loan.icon,
@@ -485,6 +509,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
             payerId: rt.payerId,
             description: rt.description,
             isRecurring: true,
+            isPrivate: rt.isPrivate ?? false,
+            ownerId: rt.ownerId,
           },
         });
       }

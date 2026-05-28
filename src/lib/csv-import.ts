@@ -69,6 +69,7 @@ export type StagedTx = {
   categoryId: string;    // suggested
   payerId: string | null; // from rule, else null
   matchedRuleId: string | null;
+  isPrivate: boolean;    // satt om en regel markerar raden som privat
   isDuplicate: boolean;
   selected: boolean;
 };
@@ -127,11 +128,22 @@ export async function parseCsvFile(file: File): Promise<ParseResult> {
   if ((text.match(/\uFFFD/g) ?? []).length > 5) {
     text = new TextDecoder("iso-8859-1").decode(buf);
   }
-  // Detect delimiter (semicolon is common in SE)
-  const firstLine = text.split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";
-  const delim = firstLine.includes(";") ? ";" : ",";
+  // Strip BOM if present
+  text = text.replace(/^﻿/, "");
 
-  const result = Papa.parse<ParsedRow>(text, {
+  // Strip leading comment/metadata lines (e.g. Swedbank exports start with "* Transaktioner Period...")
+  const allLines = text.split(/\r?\n/);
+  const firstDataIdx = allLines.findIndex((l) => {
+    const t = l.trim().replace(/^﻿/, "");
+    return t.length > 0 && !t.startsWith("*");
+  });
+  const cleanedText = firstDataIdx > 0 ? allLines.slice(firstDataIdx).join("\n") : text;
+
+  // Detect delimiter from actual header line (not metadata)
+  const headerLine = cleanedText.split(/\r?\n/).find((l) => l.trim()) ?? "";
+  const delim = headerLine.includes(";") ? ";" : ",";
+
+  const result = Papa.parse<ParsedRow>(cleanedText, {
     header: true,
     delimiter: delim,
     skipEmptyLines: true,
@@ -265,6 +277,7 @@ export function buildStaged(
       categoryId,
       payerId: rule?.payerId ?? null,
       matchedRuleId: rule?.id ?? null,
+      isPrivate: !!rule?.isPrivate,
       isDuplicate: isDup,
       selected: !isDup,
     });

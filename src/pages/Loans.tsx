@@ -6,6 +6,7 @@ import { sek, pct } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -37,13 +38,38 @@ const LOAN_TYPE_ICON: Record<LoanType, string> = {
   other: "💰",
 };
 
-// Months until paid off given balance, monthly payment and annual rate %
+// Fast-amorteringsmodell: fast månadsamortering + rörlig ränta (standard för svenska bolån)
+function monthsFixedAmort(balance: number, amortization: number): number | null {
+  if (balance <= 0) return 0;
+  if (amortization <= 0) return null;
+  return Math.ceil(balance / amortization);
+}
+
+function totalInterestFixed(balance: number, amortization: number, annualRate: number): number {
+  if (amortization <= 0) return Infinity;
+  const r = annualRate / 100 / 12;
+  const n = Math.ceil(balance / amortization);
+  // Σ ränta = r × (n×B - amort × n(n-1)/2)
+  return r * (n * balance - amortization * n * (n - 1) / 2);
+}
+
+function buildAmortizationSeriesFixed(balance: number, amortization: number, maxMonths = 720) {
+  if (amortization <= 0) return [{ month: 0, balance }];
+  const series: { month: number; balance: number }[] = [{ month: 0, balance }];
+  let b = balance;
+  for (let m = 1; m <= maxMonths && b > 0; m++) {
+    b = Math.max(0, b - amortization);
+    if (m % 12 === 0 || b <= 0) series.push({ month: m, balance: Math.round(b) });
+  }
+  return series;
+}
+
+// Annuitetsmodell (fallback för lån med fast totalbetaning, t.ex. billån)
 function monthsToPayoff(balance: number, monthlyPayment: number, annualRate: number): number | null {
   if (balance <= 0) return 0;
   const r = annualRate / 100 / 12;
-  if (monthlyPayment <= balance * r) return null; // never pays off
+  if (monthlyPayment <= balance * r) return null;
   if (r === 0) return Math.ceil(balance / monthlyPayment);
-  // n = -log(1 - r*B/P) / log(1+r)
   const n = -Math.log(1 - (r * balance) / monthlyPayment) / Math.log(1 + r);
   return Math.ceil(n);
 }
@@ -92,7 +118,7 @@ export default function Loans() {
   const totals = useMemo(() => {
     const debt = visibleLoans.reduce((s, l) => s + l.currentBalance, 0);
     const original = visibleLoans.reduce((s, l) => s + l.originalAmount, 0);
-    const monthly = visibleLoans.reduce((s, l) => s + l.monthlyPayment, 0);
+    const monthly = visibleLoans.reduce((s, l) => s + l.monthlyPayment + (l.monthlyFee ?? 0), 0);
     const yearlyInterest = visibleLoans.reduce((s, l) => s + l.currentBalance * (l.interestRate / 100), 0);
     return { debt, original, monthly, yearlyInterest, paidOff: Math.max(0, original - debt) };
   }, [visibleLoans]);
@@ -101,7 +127,9 @@ export default function Loans() {
     let max = 0;
     let possible = true;
     for (const l of visibleLoans) {
-      const m = monthsToPayoff(l.currentBalance, l.monthlyPayment, l.interestRate);
+      const m = l.monthlyAmortization > 0
+        ? monthsFixedAmort(l.currentBalance, l.monthlyAmortization)
+        : monthsToPayoff(l.currentBalance, l.monthlyPayment, l.interestRate);
       if (m == null) { possible = false; break; }
       if (m > max) max = m;
     }
@@ -181,9 +209,16 @@ export default function Loans() {
           <div className="grid md:grid-cols-2 gap-4">
             {visibleLoans.map(l => {
               const ratio = l.originalAmount > 0 ? 1 - l.currentBalance / l.originalAmount : 0;
-              const months = monthsToPayoff(l.currentBalance, l.monthlyPayment, l.interestRate);
-              const interest = totalInterest(l.currentBalance, l.monthlyPayment, l.interestRate);
-              const series = buildAmortizationSeries(l.currentBalance, l.monthlyPayment, l.interestRate);
+              const useFixed = l.monthlyAmortization > 0;
+              const months = useFixed
+                ? monthsFixedAmort(l.currentBalance, l.monthlyAmortization)
+                : monthsToPayoff(l.currentBalance, l.monthlyPayment, l.interestRate);
+              const interest = useFixed
+                ? totalInterestFixed(l.currentBalance, l.monthlyAmortization, l.interestRate)
+                : totalInterest(l.currentBalance, l.monthlyPayment, l.interestRate);
+              const series = useFixed
+                ? buildAmortizationSeriesFixed(l.currentBalance, l.monthlyAmortization)
+                : buildAmortizationSeries(l.currentBalance, l.monthlyPayment, l.interestRate);
 
               // Tidsprogress från startDate + endDate
               const termTotal = (() => {
@@ -197,86 +232,129 @@ export default function Loans() {
                 return Math.min(termTotal ?? Infinity, Math.max(0, (now.getFullYear() - s.getFullYear()) * 12 + (now.getMonth() - s.getMonth())));
               })();
               return (
-                <Card key={l.id} className="p-6 rounded-2xl border-0 shadow-soft">
-                  <div className="flex items-start justify-between gap-3">
+                <Card key={l.id} className="p-5 rounded-2xl border-0 shadow-soft">
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center text-2xl shrink-0">{l.icon || LOAN_TYPE_ICON[l.type]}</div>
-                      <div className="min-w-0">
-                        <div className="font-display font-semibold text-lg truncate">{l.name}</div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {LOAN_TYPE_LABEL[l.type]}{l.lender ? ` · ${l.lender}` : ""} · {l.interestRate}% ränta
+                      <div className="h-11 w-11 rounded-xl bg-primary/10 flex items-center justify-center text-xl shrink-0">{l.icon || LOAN_TYPE_ICON[l.type]}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display font-semibold text-base leading-tight truncate">{l.name}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {LOAN_TYPE_LABEL[l.type]}{l.lender ? ` · ${l.lender}` : ""}
                         </div>
-                        {/* Ägarbadge */}
-                        {(() => {
-                          const owner = l.ownerId ? state.persons.find(p => p.id === l.ownerId) : null;
-                          if (owner) return (
-                            <span className="inline-flex items-center mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-primary/10 text-primary">
-                              👤 {owner.name}
-                            </span>
-                          );
-                          if (l.ownerId === null && state.persons.length > 1) return (
-                            <span className="inline-flex items-center mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">
-                              🤝 Gemensamt · {l.ownerShare}% / {100 - l.ownerShare}%
-                            </span>
-                          );
-                          return null;
-                        })()}
+                        {/* Chip-rad: ränta, bindning, ägarskap */}
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-primary/10 text-primary">
+                            {l.interestRate}% ränta
+                          </span>
+                          {l.rateFixedUntil && (() => {
+                            const until = new Date(l.rateFixedUntil);
+                            const now = new Date();
+                            const ml = (until.getFullYear() - now.getFullYear()) * 12 + (until.getMonth() - now.getMonth());
+                            const dateStr = until.toLocaleDateString("sv-SE", { year: "numeric", month: "short" });
+                            if (ml < 0) return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-destructive/10 text-destructive">⚠ Bindning utgången</span>;
+                            if (ml <= 3) return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-warning-soft text-warning">⚠ Bunden t.o.m. {dateStr}</span>;
+                            return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">🔒 {dateStr}</span>;
+                          })()}
+                          {(() => {
+                            const owner = l.ownerId ? state.persons.find(p => p.id === l.ownerId) : null;
+                            if (owner) return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">👤 {owner.name}</span>;
+                            if (l.ownerId === null && state.persons.length > 1) return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">🤝 {l.ownerShare}% / {100 - l.ownerShare}%</span>;
+                            return null;
+                          })()}
+                        </div>
                       </div>
                     </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => { setEditing(l); setCreateOpen(true); }}>
-                        ✎
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(l.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    <div className="flex gap-0.5 shrink-0">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => { setEditing(l); setCreateOpen(true); }}>✎</Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(l.id)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </div>
 
-                  <div className="mt-5 space-y-3">
-                    {/* Saldoprogress */}
-                    <div>
-                      <div className="flex items-baseline justify-between text-sm mb-2">
-                        <span className="font-display font-bold text-2xl tabular-nums">{sek(l.currentBalance)}</span>
-                        <span className="text-xs text-muted-foreground">av {sek(l.originalAmount)}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                        <div className="h-full bg-gradient-primary" style={{ width: `${Math.min(100, ratio * 100)}%` }} />
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">{pct(ratio)} avbetalat</div>
+                  {/* Saldo + progress */}
+                  <div className="mt-5">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <span className="font-display font-bold text-2xl tabular-nums">{sek(l.currentBalance)}</span>
+                      <span className="text-xs text-muted-foreground">av {sek(l.originalAmount)}</span>
                     </div>
+                    <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                      <div className="h-full bg-gradient-primary" style={{ width: `${Math.min(100, ratio * 100)}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between mt-1.5">
+                      <span className="text-xs text-muted-foreground">{pct(ratio)} avbetalat</span>
+                      {l.downPayment && l.downPayment > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          Insats {sek(l.downPayment)} · LTV {Math.round(l.originalAmount / (l.originalAmount + l.downPayment) * 100)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-                    {/* Tidsprogress */}
-                    {termTotal != null && termPaid != null && (
-                      <div>
-                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                          <span>Månad <span className="font-semibold text-foreground">{termPaid}</span> av <span className="font-semibold text-foreground">{termTotal}</span></span>
-                          <span>{termTotal - termPaid} månader kvar</span>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                          <div
-                            className="h-full bg-primary/40 rounded-full"
-                            style={{ width: `${Math.min(100, (termPaid / termTotal) * 100)}%` }}
-                          />
+                  {/* Tidsprogress (för lån med känd löptid) */}
+                  {termTotal != null && termPaid != null && (
+                    <div className="mt-3">
+                      <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                        <span>Månad <span className="font-semibold text-foreground">{termPaid}</span> av <span className="font-semibold text-foreground">{termTotal}</span></span>
+                        <span>{termTotal - termPaid} månader kvar</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                        <div className="h-full bg-primary/40 rounded-full" style={{ width: `${Math.min(100, (termPaid / termTotal) * 100)}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Månadskostnad — lista istf boxar */}
+                  {(() => {
+                    const monthlyInterest = Math.round(l.currentBalance * l.interestRate / 100 / 12);
+                    const monthlyPrincipal = l.monthlyAmortization > 0
+                      ? l.monthlyAmortization
+                      : Math.max(0, Math.round(l.monthlyPayment - monthlyInterest));
+                    const fee = l.monthlyFee ?? 0;
+                    const total = monthlyInterest + monthlyPrincipal + fee;
+                    const rows = [
+                      { label: "Räntekostnad", value: monthlyInterest },
+                      { label: "Amortering", value: monthlyPrincipal },
+                      ...(fee > 0 ? [{ label: "Månadsavgift", value: fee }] : []),
+                    ];
+                    return (
+                      <div className="mt-4 rounded-xl border border-border/60 overflow-hidden">
+                        {rows.map(r => (
+                          <div key={r.label} className="flex justify-between items-center px-3 py-2 border-b border-border/40">
+                            <span className="text-xs text-muted-foreground">{r.label}</span>
+                            <span className="text-xs tabular-nums font-medium">{sek(r.value)}<span className="text-muted-foreground font-normal">/mån</span></span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between items-center px-3 py-2.5 bg-muted/40 border-t border-border/60">
+                          <span className="text-sm font-medium">Totalt / mån</span>
+                          <span className="font-bold text-base tabular-nums">{sek(total)}</span>
                         </div>
                       </div>
-                    )}
+                    );
+                  })()}
+
+                  {/* Skuldfri + Total ränta */}
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-muted/40 px-3 py-2.5">
+                      <div className="text-xs text-muted-foreground mb-0.5">Skuldfri</div>
+                      <div className={cn("text-sm font-semibold tabular-nums", months == null && "text-destructive")}>
+                        {months == null ? "Aldrig" : dateInMonths(months)}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-muted/40 px-3 py-2.5">
+                      <div className="text-xs text-muted-foreground mb-0.5">Total ränta</div>
+                      <div className="text-sm font-semibold tabular-nums">{interest === Infinity ? "—" : sek(interest)}</div>
+                    </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                    <Stat label="Per månad" value={sek(l.monthlyPayment)} />
-                    <Stat label="Skuldfri" value={months == null ? "Aldrig" : dateInMonths(months)} warn={months == null} />
-                    <Stat label="Total ränta" value={interest === Infinity ? "—" : sek(interest)} />
-                  </div>
-
+                  {/* Skuldkurva */}
                   {series.length > 2 && (
-                    <div className="mt-4 h-24 -mx-2">
+                    <div className="mt-3 h-20 -mx-1">
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={series}>
                           <XAxis dataKey="month" hide />
                           <YAxis hide domain={[0, "dataMax"]} />
                           <Tooltip
-                            contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }}
+                            contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 11 }}
                             formatter={(v: number) => sek(v)}
                             labelFormatter={(m) => `Månad ${m}`}
                           />
@@ -286,8 +364,8 @@ export default function Loans() {
                     </div>
                   )}
 
-                  <div className="mt-4 flex gap-2">
-                    <Button onClick={() => setPaymentFor(l)} variant="outline" className="flex-1 rounded-xl">
+                  <div className="mt-4">
+                    <Button onClick={() => setPaymentFor(l)} variant="outline" className="w-full rounded-xl">
                       <Plus className="h-4 w-4" /> Extra amortering
                     </Button>
                   </div>
@@ -430,12 +508,25 @@ function LoanFormDialog({
   const [name, setName] = useState("");
   const [type, setType] = useState<LoanType>("mortgage");
   const [lender, setLender] = useState("");
-  const [originalAmount, setOriginalAmount] = useState("");
-  const [currentBalance, setCurrentBalance] = useState("");
-  const [interestRate, setInterestRate] = useState("");
-  const [monthlyPayment, setMonthlyPayment] = useState("");
+  const [originalAmount, setOriginalAmount] = useState(0);
+  const [currentBalance, setCurrentBalance] = useState(0);
+  const [interestRate, setInterestRate] = useState(0);
+  const [amortization, setAmortization] = useState(0);
   const [startMonth, setStartMonth] = useState(""); // YYYY-MM
   const [termMonths, setTermMonths] = useState("");  // totalt antal månader
+
+  const [downPayment, setDownPayment] = useState(0);
+  const [monthlyFee, setMonthlyFee] = useState(0);
+  const [rateFixedUntil, setRateFixedUntil] = useState(""); // YYYY-MM
+
+  // Auto-sätt FI:s amorteringskrav när fältet är tomt och LTV är känt
+  useEffect(() => {
+    if (amortization !== 0) return;
+    if (type !== "mortgage" || downPayment <= 0 || originalAmount <= 0) return;
+    const ltv = originalAmount / (originalAmount + downPayment);
+    const rate = ltv > 0.70 ? 0.02 : ltv > 0.50 ? 0.01 : 0;
+    if (rate > 0) setAmortization(Math.ceil(originalAmount * rate / 12));
+  }, [type, originalAmount, downPayment]);
 
   // "private:<personId>" eller "shared"
   const [ownerMode, setOwnerMode] = useState<string>("shared");
@@ -464,10 +555,16 @@ function LoanFormDialog({
     setName(loan?.name ?? "");
     setType(loan?.type ?? "mortgage");
     setLender(loan?.lender ?? "");
-    setOriginalAmount(loan ? String(loan.originalAmount) : "");
-    setCurrentBalance(loan ? String(loan.currentBalance) : "");
-    setInterestRate(loan ? String(loan.interestRate) : "");
-    setMonthlyPayment(loan ? String(loan.monthlyPayment) : "");
+    setOriginalAmount(loan ? loan.originalAmount : 0);
+    setCurrentBalance(loan ? loan.currentBalance : 0);
+    setInterestRate(loan ? loan.interestRate : 0);
+    const bal = loan ? loan.currentBalance : 0;
+    const rate = loan ? loan.interestRate : 0;
+    const calcInterest = Math.round(bal * rate / 100 / 12);
+    setAmortization(loan ? Math.max(0, loan.monthlyPayment - calcInterest) : 0);
+    setMonthlyFee(loan ? loan.monthlyFee : 0);
+    setDownPayment(loan?.downPayment ?? 0);
+    setRateFixedUntil(loan?.rateFixedUntil ? loan.rateFixedUntil.slice(0, 7) : "");
     // Startdatum + löptid
     if (loan?.startDate) {
       setStartMonth(loan.startDate.slice(0, 7));
@@ -495,11 +592,12 @@ function LoanFormDialog({
 
   const submit = () => {
     if (!name.trim()) { toast.error("Ange ett namn"); return; }
-    const orig = Number(originalAmount) || 0;
-    const bal = Number(currentBalance) || 0;
+    const orig = originalAmount;
+    const bal = currentBalance;
     if (bal <= 0) { toast.error("Ange kvarvarande skuld"); return; }
-    const rate = Number(interestRate) || 0;
-    const monthly = Number(monthlyPayment) || 0;
+    const rate = interestRate;
+    const calcInterest = Math.round(bal * rate / 100 / 12);
+    const monthly = amortization + calcInterest;
 
     const isShared = ownerMode === "shared";
     const resolvedOwnerId = isShared ? null : ownerMode.replace("private:", "");
@@ -514,12 +612,15 @@ function LoanFormDialog({
       interestRate: rate,
       monthlyPayment: monthly,
       monthlyAmortization: Math.max(0, monthly - bal * (rate / 100 / 12)),
+      monthlyFee,
+      downPayment: downPayment > 0 ? downPayment : undefined,
       ownerId: resolvedOwnerId,
       ownerShare: isShared ? ownerShare : 100,
       icon: loan?.icon ?? LOAN_TYPE_ICON[type],
       payments: loan?.payments ?? [],
       startDate: startMonth ? `${startMonth}-01` : loan?.startDate,
       endDate: endMonth ? `${endMonth}-01` : loan?.endDate,
+      rateFixedUntil: rateFixedUntil ? `${rateFixedUntil}-01` : undefined,
     });
     onOpenChange(false);
   };
@@ -558,64 +659,128 @@ function LoanFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Ursprungligt belopp</Label>
-              <Input inputMode="decimal" value={originalAmount} onChange={(e) => setOriginalAmount(e.target.value)} onFocus={e => e.target.select()} placeholder="kr" />
+              <NumericInput value={originalAmount} onChange={setOriginalAmount} placeholder="kr" />
             </div>
             <div>
               <Label>Kvar att betala</Label>
-              <Input inputMode="decimal" value={currentBalance} onChange={(e) => setCurrentBalance(e.target.value)} onFocus={e => e.target.select()} placeholder="kr" />
+              <NumericInput value={currentBalance} onChange={setCurrentBalance} placeholder="kr" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Ränta (%)</Label>
-              <Input inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} onFocus={e => e.target.select()} placeholder="t.ex. 4.25" />
-            </div>
-            <div>
-              <Label>Månadskostnad</Label>
-              <div className="flex gap-1">
-                <Input inputMode="decimal" value={monthlyPayment} onChange={(e) => setMonthlyPayment(e.target.value)} onFocus={e => e.target.select()} placeholder="kr/mån" />
-                {remainingMonths != null && Number(currentBalance) > 0 && Number(interestRate) >= 0 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 text-xs px-2"
-                    title="Beräkna månadsbetalning från saldo, ränta och kvarvarande löptid"
-                    onClick={() => setMonthlyPayment(String(Math.ceil(calcMonthlyPayment(Number(currentBalance), Number(interestRate), remainingMonths))))}
-                  >
-                    Beräkna
-                  </Button>
+          <div>
+            <Label>Insats / kontantinsats</Label>
+            <NumericInput value={downPayment} onChange={setDownPayment} placeholder="kr (valfritt)" />
+          </div>
+          {downPayment > 0 && originalAmount > 0 && (
+            <p className="text-xs text-muted-foreground -mt-1">
+              Köpepris: <span className="font-medium text-foreground">{sek(originalAmount + downPayment)}</span>
+              {' '}· Belåningsgrad: <span className="font-medium text-foreground">{Math.round(originalAmount / (originalAmount + downPayment) * 100)}%</span>
+            </p>
+          )}
+          <div>
+            <Label>Ränta (%)</Label>
+            <NumericInput value={interestRate} onChange={setInterestRate} placeholder="t.ex. 4,25" />
+          </div>
+          {(() => {
+            const calcInterest = currentBalance > 0 && interestRate > 0
+              ? Math.round(currentBalance * interestRate / 100 / 12)
+              : null;
+            const total = (calcInterest ?? 0) + amortization + monthlyFee;
+
+            // FI:s amorteringskrav (bara för bolån med känd insats)
+            const fiMinAmort = (() => {
+              if (type !== "mortgage" || !downPayment || originalAmount <= 0) return null;
+              const ltv = originalAmount / (originalAmount + downPayment);
+              const pct = ltv > 0.70 ? 0.02 : ltv > 0.50 ? 0.01 : 0;
+              return pct > 0 ? Math.ceil(originalAmount * pct / 12) : null;
+            })();
+
+            return (
+              <div className="space-y-1.5">
+                <div className="rounded-xl border border-border bg-muted/30 divide-y divide-border text-sm overflow-hidden">
+                  {/* Räntekostnad — beräknad */}
+                  <div className="flex items-center justify-between px-3 py-2.5 gap-3">
+                    <span className="text-muted-foreground text-xs">Räntekostnad / mån</span>
+                    <span className="font-semibold tabular-nums text-xs">
+                      {calcInterest != null ? sek(calcInterest) : <span className="text-muted-foreground italic">ange saldo & ränta</span>}
+                    </span>
+                  </div>
+                  {/* Amortering — redigerbar */}
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <span className="text-muted-foreground text-xs shrink-0">Amortering / mån</span>
+                    <NumericInput
+                      value={amortization}
+                      onChange={(v) => setAmortization(v)}
+                      placeholder="kr/mån"
+                      className="w-32 h-7 text-xs text-right ml-auto"
+                    />
+                  </div>
+                  {/* Månadsavgift — redigerbar */}
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <span className="text-muted-foreground text-xs shrink-0">Månadsavgift förening</span>
+                    <NumericInput value={monthlyFee} onChange={setMonthlyFee} placeholder="kr/mån" className="w-32 h-7 text-xs text-right ml-auto" />
+                  </div>
+                  {/* Totalt */}
+                  <div className="flex items-baseline justify-between px-3 py-2.5 bg-muted/50">
+                    <span className="text-xs text-muted-foreground">Totalt per månad</span>
+                    <span className="font-bold tabular-nums">{total > 0 ? sek(total) : "—"}</span>
+                  </div>
+                </div>
+                {fiMinAmort != null && (
+                  <p className="text-[11px] text-muted-foreground px-1">
+                    FI:s amorteringskrav: minst <span className="font-medium text-foreground">{sek(fiMinAmort)}/mån</span>
+                    {' '}({originalAmount / (originalAmount + downPayment) > 0.70 ? "2" : "1"} % / år · LTV {Math.round(originalAmount / (originalAmount + downPayment) * 100)}%)
+                  </p>
                 )}
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
-          {/* Löptid */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Räntebindning — bara för bolån */}
+          {type === "mortgage" && (
             <div className="space-y-1">
-              <Label>Startmånad</Label>
-              <MonthPicker value={startMonth} onChange={setStartMonth} />
-            </div>
-            <div>
-              <Label>Löptid (månader)</Label>
-              <Input
-                type="number"
-                value={termMonths}
-                onChange={e => setTermMonths(e.target.value)}
-                onFocus={e => e.target.select()}
-                placeholder="t.ex. 60"
-              />
-            </div>
-          </div>
-          {endMonth && (
-            <p className="text-xs text-muted-foreground -mt-1">
-              Slutdatum: <span className="font-medium text-foreground">
-                {new Date(`${endMonth}-01`).toLocaleDateString("sv-SE", { year: "numeric", month: "long" })}
-              </span>
-              {remainingMonths != null && (
-                <> · <span className="font-medium text-foreground">{remainingMonths} månader kvar</span></>
+              <Label>Ränta bunden t.o.m. (valfritt)</Label>
+              <MonthPicker value={rateFixedUntil} onChange={setRateFixedUntil} />
+              {rateFixedUntil && (
+                <p className="text-xs text-muted-foreground">
+                  {interestRate > 0 && <>Nuvarande ränta {interestRate}% låst t.o.m.{" "}</>}
+                  <span className="font-medium text-foreground">
+                    {new Date(`${rateFixedUntil}-01`).toLocaleDateString("sv-SE", { year: "numeric", month: "long" })}
+                  </span>
+                </p>
               )}
-            </p>
+            </div>
+          )}
+
+          {/* Löptid — döljs för bolån */}
+          {type !== "mortgage" && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Startmånad</Label>
+                  <MonthPicker value={startMonth} onChange={setStartMonth} />
+                </div>
+                <div>
+                  <Label>Löptid (månader)</Label>
+                  <Input
+                    type="number"
+                    value={termMonths}
+                    onChange={e => setTermMonths(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    placeholder="t.ex. 60"
+                  />
+                </div>
+              </div>
+              {endMonth && (
+                <p className="text-xs text-muted-foreground -mt-1">
+                  Slutdatum: <span className="font-medium text-foreground">
+                    {new Date(`${endMonth}-01`).toLocaleDateString("sv-SE", { year: "numeric", month: "long" })}
+                  </span>
+                  {remainingMonths != null && (
+                    <> · <span className="font-medium text-foreground">{remainingMonths} månader kvar</span></>
+                  )}
+                </p>
+              )}
+            </>
           )}
 
           {/* Ägarskap */}
@@ -661,7 +826,7 @@ function LoanFormDialog({
                     onValueChange={v => setOwnerShare(v[0])}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Av {currentBalance ? `${sek(Number(currentBalance))} skuld` : "skulden"} ansvarar {p0.name} för {sek(Number(currentBalance || 0) * ownerShare / 100)} och {p1.name} för {sek(Number(currentBalance || 0) * (100 - ownerShare) / 100)}.
+                    Av {currentBalance ? `${sek(currentBalance)} skuld` : "skulden"} ansvarar {p0.name} för {sek(currentBalance * ownerShare / 100)} och {p1.name} för {sek(currentBalance * (100 - ownerShare) / 100)}.
                   </p>
                 </div>
               )}
@@ -685,17 +850,17 @@ function PaymentDialog({
   persons: { id: string; name: string }[];
   onSave: (loanId: string, amount: number, personId: string, isExtra: boolean, note: string) => void;
 }) {
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(0);
   const [personId, setPersonId] = useState(persons[0]?.id ?? "");
   const [note, setNote] = useState("");
 
   useMemo(() => {
-    if (loan) { setAmount(""); setPersonId(persons[0]?.id ?? ""); setNote(""); }
+    if (loan) { setAmount(0); setPersonId(persons[0]?.id ?? ""); setNote(""); }
   }, [loan, persons]);
 
   const submit = () => {
     if (!loan) return;
-    const a = Number(amount);
+    const a = amount;
     if (!a || a <= 0) { toast.error("Ange ett belopp"); return; }
     onSave(loan.id, a, personId, true, note);
     onClose();
@@ -712,7 +877,7 @@ function PaymentDialog({
             <div className="text-sm text-muted-foreground">{loan.name} · kvar {sek(loan.currentBalance)}</div>
             <div>
               <Label>Belopp</Label>
-              <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} onFocus={e => e.target.select()} placeholder="kr" autoFocus />
+              <NumericInput value={amount} onChange={setAmount} placeholder="kr" autoFocus />
             </div>
             {persons.length > 1 && (
               <div>

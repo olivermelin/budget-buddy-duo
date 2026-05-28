@@ -1,17 +1,21 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
-import { lastNMonths, summarizeMonth, buildMonthPlan } from "@/lib/analytics";
+import { lastNMonths, summarizeMonth, buildMonthPlan, inMonth } from "@/lib/analytics";
 import { sek, pct, monthLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home, Landmark, CalendarCheck } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home, Landmark, CalendarCheck, Pencil, Trash2, Lock } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
+import { Transaction } from "@/types/budget";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 export default function Dashboard() {
-  const { state } = useBudget();
+  const { state, dispatch } = useBudget();
   const [open, setOpen] = useState(false);
+  const [breakdown, setBreakdown] = useState<"fixed" | "variable" | null>(null);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const today = new Date();
 
   const cur = useMemo(() => summarizeMonth(state, today.getFullYear(), today.getMonth()), [state]);
@@ -22,6 +26,19 @@ export default function Dashboard() {
   const recent = useMemo(() => state.transactions.slice(0, 5), [state.transactions]);
   const catMap = useMemo(() => Object.fromEntries(state.categories.map(c => [c.id, c])), [state.categories]);
   const personMap = useMemo(() => Object.fromEntries(state.persons.map(p => [p.id, p])), [state.persons]);
+
+  const fixedCatIds = useMemo(() => new Set(state.categories.filter(c => c.isFixed).map(c => c.id)), [state.categories]);
+
+  const breakdownTxs = useMemo(() => {
+    if (!breakdown) return [];
+    const isFixed = (t: { categoryId: string; isRecurring?: boolean }) =>
+      fixedCatIds.has(t.categoryId) || !!t.isRecurring;
+    return state.transactions.filter(t =>
+      t.type === "expense" &&
+      inMonth(t.date, today.getFullYear(), today.getMonth()) &&
+      (breakdown === "fixed" ? isFixed(t) : !isFixed(t))
+    ).sort((a, b) => b.date.localeCompare(a.date));
+  }, [breakdown, state.transactions, today, fixedCatIds]);
 
   const insights = useMemo(() => {
     const out: { label: string; tone: "good" | "warn" | "info" }[] = [];
@@ -102,10 +119,54 @@ export default function Dashboard() {
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <Kpi icon={<ArrowDown className="h-4 w-4" />} label="Inkomster" value={sek(cur.income)} tone="success" />
-        <Kpi icon={<Home className="h-4 w-4" />} label="Fasta utgifter" value={sek(cur.fixed)} tone="muted" />
-        <Kpi icon={<Receipt className="h-4 w-4" />} label="Rörliga utgifter" value={sek(cur.variable)} tone="muted" />
+        <Kpi icon={<Home className="h-4 w-4" />} label="Fasta utgifter" value={sek(cur.fixed)} tone="muted" onClick={() => setBreakdown("fixed")} />
+        <Kpi icon={<Receipt className="h-4 w-4" />} label="Rörliga utgifter" value={sek(cur.variable)} tone="muted" onClick={() => setBreakdown("variable")} />
         <Kpi icon={<PiggyBank className="h-4 w-4" />} label="Sparande" value={sek(cur.savings)} tone="primary" />
       </div>
+
+      {/* Privat-kort: visas endast när användaren har egna privata utgifter */}
+      {cur.personal.expenses > 0 && (
+        <Card className="p-5 md:p-6 rounded-2xl border-0 shadow-soft">
+          <div className="flex items-center gap-2 mb-3">
+            <Lock className="h-4 w-4 text-primary" />
+            <h2 className="font-display font-semibold">Mina privata denna månad</h2>
+            <span className="ml-auto text-xs text-muted-foreground">Syns endast för dig</span>
+          </div>
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div>
+              <div className="text-xs text-muted-foreground">Totalt</div>
+              <div className="font-display font-bold text-lg md:text-xl tabular-nums">{sek(cur.personal.expenses)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Fasta</div>
+              <div className="font-display font-bold text-lg md:text-xl tabular-nums">{sek(cur.personal.fixed)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Rörliga</div>
+              <div className="font-display font-bold text-lg md:text-xl tabular-nums">{sek(cur.personal.variable)}</div>
+            </div>
+          </div>
+          {Object.keys(cur.personal.byCategory).length > 0 && (
+            <div className="space-y-1.5">
+              {Object.entries(cur.personal.byCategory)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([catId, amt]) => {
+                  const c = catMap[catId];
+                  return (
+                    <div key={catId} className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 truncate">
+                        <span aria-hidden="true">{c?.icon ?? "•"}</span>
+                        <span className="truncate">{c?.name ?? "Okänd"}</span>
+                      </span>
+                      <span className="font-medium tabular-nums">{sek(amt)}</span>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Månadsplan */}
       {plan.hasRecurring && (
@@ -261,13 +322,74 @@ export default function Dashboard() {
       </div>
 
       <TransactionModal open={open} onOpenChange={setOpen} />
+      <TransactionModal
+        open={editingTx !== null}
+        onOpenChange={v => { if (!v) setEditingTx(null); }}
+        transaction={editingTx}
+      />
+
+      <Dialog open={breakdown !== null} onOpenChange={v => !v && setBreakdown(null)}>
+        <DialogContent className="sm:max-w-lg rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">
+              {breakdown === "fixed" ? "Fasta utgifter" : "Rörliga utgifter"} — {monthLabel(today)}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto -mx-6 px-6">
+            {breakdownTxs.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">Inga transaktioner denna månad.</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {breakdownTxs.map(t => {
+                  const c = catMap[t.categoryId];
+                  const p = personMap[t.payerId];
+                  return (
+                    <div key={t.id} className="flex items-center gap-3 py-3">
+                      <div
+                        className="h-9 w-9 rounded-xl flex items-center justify-center text-base shrink-0"
+                        style={{ backgroundColor: `hsl(${c?.color} / 0.15)` }}
+                      >{c?.icon}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">{t.description}</div>
+                        <div className="text-xs text-muted-foreground">{dateLabel(t.date)} · {p?.name} · {c?.name}</div>
+                      </div>
+                      <div className="font-display font-bold tabular-nums text-sm shrink-0">−{sek(t.amount)}</div>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <Button
+                          variant="ghost" size="icon" className="h-7 w-7"
+                          onClick={() => { setEditingTx(t); setBreakdown(null); }}
+                          aria-label="Redigera"
+                        ><Pencil className="h-3.5 w-3.5" /></Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => dispatch({ type: "DELETE_TX", id: t.id })}
+                          aria-label="Ta bort"
+                        ><Trash2 className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          {breakdownTxs.length > 0 && (
+            <div className="flex items-center justify-between pt-3 border-t border-border">
+              <span className="text-sm text-muted-foreground">Totalt</span>
+              <span className="font-display font-bold tabular-nums">−{sek(breakdownTxs.reduce((s, t) => s + t.amount, 0))}</span>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function Kpi({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: "success" | "muted" | "primary" }) {
+function Kpi({ icon, label, value, tone, onClick }: { icon: React.ReactNode; label: string; value: string; tone: "success" | "muted" | "primary"; onClick?: () => void }) {
   return (
-    <Card className="p-4 md:p-5 rounded-2xl shadow-soft border-0 bg-card">
+    <Card
+      className={cn("p-4 md:p-5 rounded-2xl shadow-soft border-0 bg-card", onClick && "cursor-pointer hover:bg-muted/40 transition-colors")}
+      onClick={onClick}
+    >
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className={cn(
           "h-7 w-7 rounded-lg flex items-center justify-center",
@@ -276,6 +398,7 @@ function Kpi({ icon, label, value, tone }: { icon: React.ReactNode; label: strin
           tone === "muted" && "bg-muted text-foreground",
         )}>{icon}</span>
         {label}
+        {onClick && <span className="ml-auto text-muted-foreground/50">↗</span>}
       </div>
       <div className="mt-2 text-xl md:text-2xl font-display font-bold tabular-nums">{value}</div>
     </Card>

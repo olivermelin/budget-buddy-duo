@@ -1,6 +1,11 @@
 import { AppState, Transaction, Subscription } from "@/types/budget";
 import { monthKey } from "./format";
 
+// Privata transaktioner ingår inte i hushållets uppdelning eller delade budget.
+// RLS säkerställer att sambon inte ens ser dem; här filtrerar vi för säkerhets skull
+// och för att hålla aktuell användares vyer korrekta.
+const isShared = (t: { isPrivate?: boolean }) => !t.isPrivate;
+
 // ─── Effektiva kategoribudgetar ───────────────────────────────────────────────
 // Fasta kategorier: budget = summa aktiva återkommande utgifter i kategorin
 // Rörliga kategorier: budget = det manuellt angivna värdet
@@ -11,6 +16,7 @@ export function computeEffectiveBudgets(state: AppState): Record<string, number>
 
   for (const rt of state.recurringTransactions) {
     if (!rt.isActive || rt.type !== "expense") continue;
+    if (!isShared(rt)) continue; // privata recurring blåser inte upp delad budget
     if (fixedCats.has(rt.categoryId)) {
       fromRecurring[rt.categoryId] = (fromRecurring[rt.categoryId] ?? 0) + rt.amount;
     }
@@ -39,10 +45,12 @@ export interface MonthPlan {
 export function buildMonthPlan(state: AppState, year: number, month: number): MonthPlan {
   const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
 
+  // Planen avser hushållets delade ekonomi — privata recurring exkluderas.
   let plannedIncome = 0;
   let plannedFixed = 0;
   for (const rt of state.recurringTransactions) {
     if (!rt.isActive) continue;
+    if (!isShared(rt)) continue;
     if (rt.type === "income") plannedIncome += rt.amount;
     else plannedFixed += rt.amount;
   }
@@ -52,7 +60,8 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
   let actualFixed = 0;
   for (const t of txs) {
     if (t.type !== "expense") continue;
-    if (fixedCats.has(t.categoryId)) actualFixed += t.amount;
+    if (!isShared(t)) continue;
+    if (isFixedExpense(t, fixedCats)) actualFixed += t.amount;
     else actualVariable += t.amount;
   }
 
@@ -68,7 +77,7 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
     actualFixed,
     remaining,
     spendPercent,
-    hasRecurring: state.recurringTransactions.some(r => r.isActive),
+    hasRecurring: state.recurringTransactions.some(r => r.isActive && isShared(r)),
   };
 }
 
@@ -91,27 +100,57 @@ export interface MonthSummary {
   remaining: number;
   byCategory: Record<string, number>;
   byPerson: Record<string, number>;
+  /**
+   * Endast den aktuella användarens privata utgifter (sambon ser dem inte alls via RLS).
+   * Räknas INTE in i `income`/`fixed`/`variable`/`expenses` ovan — de tillhör hushållets delade vy.
+   */
+  personal: {
+    fixed: number;
+    variable: number;
+    expenses: number;
+    byCategory: Record<string, number>;
+  };
 }
+
+const isFixedExpense = (t: { categoryId: string }, fixedCats: Set<string>) =>
+  fixedCats.has(t.categoryId);
 
 export function summarizeMonth(state: AppState, year: number, month: number): MonthSummary {
   const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
   const txs = state.transactions.filter(t => inMonth(t.date, year, month));
   let income = 0, fixed = 0, variable = 0;
+  let personalFixed = 0, personalVariable = 0;
   const byCategory: Record<string, number> = {};
   const byPerson: Record<string, number> = {};
+  const personalByCategory: Record<string, number> = {};
   for (const t of txs) {
     if (t.type === "income") {
-      income += t.amount;
-    } else {
-      if (fixedCats.has(t.categoryId)) fixed += t.amount;
+      if (isShared(t)) income += t.amount;
+      continue;
+    }
+    if (isShared(t)) {
+      if (isFixedExpense(t, fixedCats)) fixed += t.amount;
       else variable += t.amount;
       byCategory[t.categoryId] = (byCategory[t.categoryId] || 0) + t.amount;
       byPerson[t.payerId] = (byPerson[t.payerId] || 0) + t.amount;
+    } else {
+      if (isFixedExpense(t, fixedCats)) personalFixed += t.amount;
+      else personalVariable += t.amount;
+      personalByCategory[t.categoryId] = (personalByCategory[t.categoryId] || 0) + t.amount;
     }
   }
   const expenses = fixed + variable;
   const remaining = income - expenses;
-  return { year, month, income, fixed, variable, expenses, savings: Math.max(0, remaining), remaining, byCategory, byPerson };
+  return {
+    year, month, income, fixed, variable, expenses,
+    savings: Math.max(0, remaining), remaining, byCategory, byPerson,
+    personal: {
+      fixed: personalFixed,
+      variable: personalVariable,
+      expenses: personalFixed + personalVariable,
+      byCategory: personalByCategory,
+    },
+  };
 }
 
 export function lastNMonths(state: AppState, n: number, ref = new Date()): MonthSummary[] {
@@ -147,6 +186,7 @@ export function detectSubscriptions(state: AppState): Subscription[] {
       occurrences: months.size,
       lastDate: sorted[0].date,
       status: override ?? "active",
+      isPrivate: txs.some(t => t.isPrivate),
     });
   }
   return subs.sort((a, b) => b.amount - a.amount);
@@ -159,9 +199,17 @@ export interface Settlement {
 }
 
 export function calcSplit(state: AppState, year: number, month: number) {
-  const txs = state.transactions.filter(t => t.type === "expense" && inMonth(t.date, year, month));
-  const total = txs.reduce((s, t) => s + t.amount, 0);
+  const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
+  // Privata transaktioner exkluderas helt från delningen — de berör endast ägaren.
+  const txs = state.transactions.filter(t => t.type === "expense" && isShared(t) && inMonth(t.date, year, month));
   const persons = state.persons;
+
+  const fixedTxs = txs.filter(t => isFixedExpense(t, fixedCats));
+  const variableTxs = txs.filter(t => !isFixedExpense(t, fixedCats));
+
+  const fixedTotal = fixedTxs.reduce((s, t) => s + t.amount, 0);
+  const variableTotal = variableTxs.reduce((s, t) => s + t.amount, 0);
+  const total = fixedTotal + variableTotal;
 
   const paid: Record<string, number> = {};
   for (const p of persons) paid[p.id] = 0;
@@ -169,18 +217,28 @@ export function calcSplit(state: AppState, year: number, month: number) {
     if (paid[t.payerId] !== undefined) paid[t.payerId] += t.amount;
   }
 
+  const fixedShare: Record<string, number> = {};
+  const variableShare: Record<string, number> = {};
   const share: Record<string, number> = {};
+
   if (persons.length === 0) {
-    return { total, paid, share, diff: {}, settlements: [] as Settlement[] };
+    return { total, fixedTotal, variableTotal, paid, fixedShare, variableShare, share, diff: {}, settlements: [] as Settlement[] };
   }
 
+  // Fasta och rörliga utgifter delas båda enligt valt läge (50/50 eller inkomstbaserat)
   if (state.settings.splitMode === "50/50") {
-    const equal = total / persons.length;
-    for (const p of persons) share[p.id] = equal;
+    const equalFixed = fixedTotal / persons.length;
+    const equalVariable = variableTotal / persons.length;
+    for (const p of persons) { fixedShare[p.id] = equalFixed; variableShare[p.id] = equalVariable; }
   } else {
     const totalIncome = persons.reduce((s, p) => s + p.income, 0) || 1;
-    for (const p of persons) share[p.id] = total * (p.income / totalIncome);
+    for (const p of persons) {
+      fixedShare[p.id] = fixedTotal * (p.income / totalIncome);
+      variableShare[p.id] = variableTotal * (p.income / totalIncome);
+    }
   }
+
+  for (const p of persons) share[p.id] = fixedShare[p.id] + variableShare[p.id];
 
   // Diff: positive = ligger ute med pengar (har betalat mer än sin andel)
   const diff: Record<string, number> = {};
@@ -209,5 +267,5 @@ export function calcSplit(state: AppState, year: number, month: number) {
     if (debtors[di].amount < 0.5) di++;
   }
 
-  return { total, paid, share, diff, settlements };
+  return { total, fixedTotal, variableTotal, paid, fixedShare, variableShare, share, diff, settlements };
 }

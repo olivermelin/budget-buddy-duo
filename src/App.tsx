@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -15,10 +15,7 @@ import Transactions from "./pages/Transactions";
 import CoupleMode from "./pages/CoupleMode";
 import Goals from "./pages/Goals";
 import Loans from "./pages/Loans";
-import Import from "./pages/Import";
 import Statistics from "./pages/Statistics";
-import YearOverview from "./pages/YearOverview";
-import Subscriptions from "./pages/Subscriptions";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import AuthCallback from "./pages/AuthCallback";
@@ -65,11 +62,11 @@ const App = () => (
                 <Route path="/parlage" element={<ErrorBoundary><CoupleMode /></ErrorBoundary>} />
                 <Route path="/sparmal" element={<ErrorBoundary><Goals /></ErrorBoundary>} />
                 <Route path="/lan" element={<ErrorBoundary><Loans /></ErrorBoundary>} />
-                <Route path="/import" element={<ErrorBoundary><Import /></ErrorBoundary>} />
                 <Route path="/statistik" element={<ErrorBoundary><Statistics /></ErrorBoundary>} />
-                <Route path="/arsoversikt" element={<ErrorBoundary><YearOverview /></ErrorBoundary>} />
-                <Route path="/prenumerationer" element={<ErrorBoundary><Subscriptions /></ErrorBoundary>} />
                 <Route path="/installningar" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+                <Route path="/arsoversikt" element={<Navigate to="/statistik" replace />} />
+                <Route path="/prenumerationer" element={<Navigate to="/statistik" replace />} />
+                <Route path="/import" element={<Navigate to="/installningar" replace />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { exportTransactionsXLSX, exportTransactionsPDF } from "@/lib/export";
 import { useBudget } from "@/store/budget-store";
 import { useAuth } from "@/context/AuthContext";
@@ -8,16 +8,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, UserPlus, Copy, Check, LogOut, Pencil, Lock, Download, FileText, UserX } from "lucide-react";
+import { Plus, Trash2, UserPlus, Copy, Check, LogOut, Lock, Download, FileText, UserX, Upload, FileSpreadsheet, AlertTriangle, ArrowLeft, Sparkles, Wand2, Zap, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { RecurringTransaction, ImportRule, ImportRuleMatch } from "@/types/budget";
-import { computeEffectiveBudgets } from "@/lib/analytics";
-
-const ICONS = ["🛒", "🏠", "🚗", "🎬", "🛍️", "📱", "✈️", "✨", "🍽️", "💪", "📚", "🐾", "💊", "🎁"];
+import { ImportRule, ImportRuleMatch } from "@/types/budget";
+import { NumericInput } from "@/components/ui/numeric-input";
+import {
+  parseCsvFile,
+  buildStaged,
+  BANK_PRESETS,
+  type ColumnMapping,
+  type ParseResult,
+  type StagedTx,
+} from "@/lib/csv-import";
+import { sek, dateLabel } from "@/lib/format";
 
 const PERSON_COLORS = [
   "#1e3a5f", // navy
@@ -72,14 +81,11 @@ export default function Settings() {
         </Select>
       </Card>
 
-      {/* Categories */}
-      <CategoriesEditor />
-
-      {/* Recurring transactions */}
-      <RecurringEditor />
-
       {/* Import rules */}
       <ImportRulesEditor />
+
+      {/* Import CSV */}
+      <ImportSection />
 
       {/* Export data */}
       <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
@@ -365,12 +371,10 @@ function MembersSection() {
 
             <div className="space-y-2">
               <Label htmlFor={`person-income-${p.id}`} className="text-xs">Månadsinkomst (SEK)</Label>
-              <Input
+              <NumericInput
                 id={`person-income-${p.id}`}
-                type="number"
-                value={p.income || ""}
-                onChange={e => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { income: parseFloat(e.target.value) || 0 } })}
-                onFocus={e => e.target.select()}
+                value={p.income || 0}
+                onChange={v => dispatch({ type: "UPDATE_PERSON", id: p.id, patch: { income: v } })}
                 placeholder="0"
                 className="rounded-xl"
                 disabled={!isMe}
@@ -415,212 +419,13 @@ function MembersSection() {
   );
 }
 
-function RecurringEditor() {
-  const { state, dispatch } = useBudget();
-  const { user } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<RecurringTransaction | null>(null);
-
-  const [type, setType] = useState<"expense" | "income">("expense");
-  const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState("");
-  const [categoryId, setCategoryId] = useState(state.categories[0]?.id ?? "");
-  const [payerId, setPayerId] = useState(state.persons[0]?.id ?? "");
-  const [day, setDay] = useState("25");
-  const [isActive, setIsActive] = useState(true);
-
-  const openNew = () => {
-    setEditing(null);
-    setType("expense");
-    setDescription("");
-    setAmount("");
-    setCategoryId(state.categories[0]?.id ?? "");
-    setPayerId(state.persons[0]?.id ?? user?.id ?? "");
-    setDay("25");
-    setIsActive(true);
-    setOpen(true);
-  };
-
-  const openEdit = (rt: RecurringTransaction) => {
-    setEditing(rt);
-    setType(rt.type);
-    setDescription(rt.description);
-    setAmount(String(rt.amount));
-    setCategoryId(rt.categoryId);
-    setPayerId(rt.payerId);
-    setDay(String(rt.dayOfMonth));
-    setIsActive(rt.isActive);
-    setOpen(true);
-  };
-
-  const save = () => {
-    const num = parseFloat(amount.replace(",", "."));
-    if (!num || num <= 0) { toast.error("Ange ett belopp"); return; }
-    if (!description.trim()) { toast.error("Lägg till beskrivning"); return; }
-    const dayNum = parseInt(day, 10);
-    if (!dayNum || dayNum < 1 || dayNum > 31) { toast.error("Dag måste vara 1–31"); return; }
-
-    const rt: RecurringTransaction = {
-      id: editing?.id ?? crypto.randomUUID(),
-      description: description.trim(),
-      amount: num,
-      type,
-      categoryId,
-      payerId,
-      dayOfMonth: dayNum,
-      isActive,
-      lastGeneratedMonth: editing?.lastGeneratedMonth ?? null,
-    };
-    dispatch({ type: "UPSERT_RECURRING", rt });
-    toast.success(editing ? "Uppdaterad" : "Återkommande transaktion skapad");
-    setOpen(false);
-  };
-
-  const remove = (id: string) => {
-    dispatch({ type: "DELETE_RECURRING", id });
-    toast.success("Borttagen");
-  };
-
-  const toggleActive = (rt: RecurringTransaction) => {
-    dispatch({ type: "UPSERT_RECURRING", rt: { ...rt, isActive: !rt.isActive } });
-  };
-
-  const typeLabel = (rt: RecurringTransaction) =>
-    rt.type === "income" ? "Inkomst" : "Utgift";
-
-  const catName = (id: string) =>
-    state.categories.find(c => c.id === id)?.name ?? "–";
-
-  const personName = (id: string) =>
-    state.persons.find(p => p.id === id)?.name ?? "–";
-
-  return (
-    <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-display font-semibold">Återkommande transaktioner</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Läggs in automatiskt varje månad</p>
-        </div>
-        <Button size="sm" onClick={openNew} className="rounded-xl"><Plus className="h-4 w-4" /> Ny</Button>
-      </div>
-
-      {state.recurringTransactions.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-4">Inga återkommande transaktioner än.</p>
-      )}
-
-      <div className="space-y-2">
-        {state.recurringTransactions.map(rt => (
-          <div key={rt.id} className={cn("flex items-center gap-3 p-3 rounded-xl bg-muted/30", !rt.isActive && "opacity-50")}>
-            <div className="text-lg w-8 text-center">{rt.type === "income" ? "💰" : "📅"}</div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium text-sm truncate">{rt.description}</span>
-                <span className={cn("text-xs px-1.5 py-0.5 rounded-md font-medium", rt.type === "income" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
-                  {typeLabel(rt)}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {rt.amount.toLocaleString("sv-SE")} kr · dag {rt.dayOfMonth} · {catName(rt.categoryId)} · {personName(rt.payerId)}
-              </p>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Switch
-                checked={rt.isActive}
-                onCheckedChange={() => toggleActive(rt)}
-                aria-label={rt.isActive ? "Inaktivera" : "Aktivera"}
-              />
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(rt)} aria-label="Redigera">
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => remove(rt.id)} aria-label="Ta bort">
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="font-display">{editing ? "Redigera" : "Ny återkommande transaktion"}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div role="group" aria-label="Typ" className="grid grid-cols-2 gap-2 p-1 bg-muted rounded-xl">
-              <button onClick={() => setType("expense")} aria-pressed={type === "expense"}
-                className={cn("py-2 rounded-lg text-sm font-medium transition", type === "expense" ? "bg-card shadow-soft" : "text-muted-foreground")}>
-                Utgift
-              </button>
-              <button onClick={() => setType("income")} aria-pressed={type === "income"}
-                className={cn("py-2 rounded-lg text-sm font-medium transition", type === "income" ? "bg-card shadow-soft" : "text-muted-foreground")}>
-                Inkomst
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="rt-desc">Beskrivning</Label>
-              <Input id="rt-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder="T.ex. Lön, Hyra, Spotify" className="rounded-xl" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="rt-amount">Belopp (SEK)</Label>
-                <Input id="rt-amount" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} onFocus={e => e.target.select()} placeholder="0" className="rounded-xl" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rt-day">Dag i månaden</Label>
-                <Input id="rt-day" type="number" min={1} max={31} value={day} onChange={e => setDay(e.target.value)} onFocus={e => e.target.select()} className="rounded-xl" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="rt-cat">Kategori</Label>
-                <Select value={categoryId} onValueChange={setCategoryId}>
-                  <SelectTrigger id="rt-cat" className="rounded-xl"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {state.categories.map(c => (
-                      <SelectItem key={c.id} value={c.id}><span className="mr-1">{c.icon}</span>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rt-payer">{type === "expense" ? "Betalare" : "Mottagare"}</Label>
-                <Select value={payerId} onValueChange={setPayerId}>
-                  <SelectTrigger id="rt-payer" className="rounded-xl"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {state.persons.map(p => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <Switch id="rt-active" checked={isActive} onCheckedChange={setIsActive} />
-              <Label htmlFor="rt-active">Aktiv</Label>
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="ghost" onClick={() => setOpen(false)} className="rounded-xl">Avbryt</Button>
-            <Button onClick={save} className="bg-gradient-primary rounded-xl">{editing ? "Uppdatera" : "Spara"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
-  );
-}
-
 function ImportRulesEditor() {
   const { state, dispatch } = useBudget();
   const [pattern, setPattern] = useState("");
   const [matchType, setMatchType] = useState<ImportRuleMatch>("contains");
   const [categoryId, setCategoryId] = useState<string>(state.categories[0]?.id ?? "");
   const [payerId, setPayerId] = useState<string>("");
+  const [isPrivate, setIsPrivate] = useState(false);
 
   const add = () => {
     if (!pattern.trim()) { toast.error("Ange ett mönster"); return; }
@@ -631,9 +436,11 @@ function ImportRulesEditor() {
       categoryId: categoryId || null,
       payerId: payerId || null,
       priority: (state.importRules[0]?.priority ?? 0) + 1,
+      isPrivate,
     };
     dispatch({ type: "UPSERT_RULE", rule });
     setPattern("");
+    setIsPrivate(false);
     toast.success("Regel skapad");
   };
 
@@ -656,9 +463,12 @@ function ImportRulesEditor() {
           return (
             <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl bg-muted/30">
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">"{r.pattern}"</div>
+                <div className="text-sm font-medium truncate flex items-center gap-1.5">
+                  {r.isPrivate && <Lock className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Privat" />}
+                  <span className="truncate">"{r.pattern}"</span>
+                </div>
                 <div className="text-xs text-muted-foreground">
-                  {r.matchType} → {c ? `${c.icon} ${c.name}` : "ingen kategori"}{p ? ` · ${p.name}` : ""}
+                  {r.matchType} → {c ? `${c.icon} ${c.name}` : "ingen kategori"}{p ? ` · ${p.name}` : ""}{r.isPrivate ? " · privat" : ""}
                 </div>
               </div>
               <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => dispatch({ type: "DELETE_RULE", id: r.id })} aria-label="Ta bort regel">
@@ -694,97 +504,300 @@ function ImportRulesEditor() {
           </SelectContent>
         </Select>
       </div>
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <Switch id="rule-private" checked={isPrivate} onCheckedChange={setIsPrivate} />
+          <Label htmlFor="rule-private" className="text-sm flex items-center gap-1.5 cursor-pointer">
+            <Lock className="h-3.5 w-3.5" /> Markera matchningar som privata
+          </Label>
+        </div>
         <Button onClick={add} className="bg-gradient-primary rounded-xl"><Plus className="h-4 w-4" /> Lägg till regel</Button>
       </div>
     </Card>
   );
 }
 
-function CategoriesEditor() {
+type ImportStep = "upload" | "map" | "review";
+
+function ImportSection() {
   const { state, dispatch } = useBudget();
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [budget, setBudget] = useState("");
-  const [icon, setIcon] = useState("✨");
+  const { user } = useAuth();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState<ImportStep>("upload");
+  const [fileName, setFileName] = useState("");
+  const [parsed, setParsed] = useState<ParseResult | null>(null);
+  const [mapping, setMapping] = useState<ColumnMapping>({ date: "", amount: "", description: "" });
+  const [staged, setStaged] = useState<StagedTx[]>([]);
+  const [defaultPayer, setDefaultPayer] = useState(state.persons[0]?.id ?? "");
+  const [dragOver, setDragOver] = useState(false);
+  const [importing, setImporting] = useState(false);
 
-  // Budget för fasta kategorier beräknas automatiskt från återkommande transaktioner
-  const effectiveBudgets = useMemo(() => computeEffectiveBudgets(state), [state]);
-
-  const add = () => {
-    if (!name.trim()) return;
-    dispatch({ type: "UPSERT_CATEGORY", cat: {
-      id: Math.random().toString(36).slice(2, 8),
-      name: name.trim(),
-      icon,
-      color: `${Math.floor(Math.random() * 360)} 70% 50%`,
-      budget: parseFloat(budget) || 0,
-    }});
-    setName(""); setBudget(""); setIcon("✨"); setAdding(false);
-    toast.success("Kategori tillagd");
+  const handleFile = async (file: File) => {
+    if (!file.name.match(/\.csv$/i)) { toast.error("Endast .csv-filer stöds just nu"); return; }
+    try {
+      const result = await parseCsvFile(file);
+      if (!result.headers.length || !result.rows.length) { toast.error("Filen verkar tom eller felformaterad"); return; }
+      setFileName(file.name);
+      setParsed(result);
+      setMapping(result.suggestedMapping);
+      setStep("map");
+    } catch (err) {
+      console.error(err);
+      toast.error("Kunde inte läsa filen");
+    }
   };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
+
+  const goReview = () => {
+    if (!parsed) return;
+    if (!mapping.date || !mapping.amount || !mapping.description) { toast.error("Mappa alla tre kolumner"); return; }
+    const built = buildStaged(parsed.rows, mapping, state.categories, state.transactions, state.importRules);
+    if (!built.length) { toast.error("Hittade inga giltiga rader att importera"); return; }
+    const matched = built.filter(b => b.matchedRuleId).length;
+    setStaged(built);
+    setStep("review");
+    if (matched > 0) toast.success(`${matched} rader kategoriserade automatiskt via regler`);
+  };
+
+  const ruleMatchedCount = useMemo(() => staged.filter(s => s.matchedRuleId).length, [staged]);
+
+  const saveAsRule = (s: StagedTx) => {
+    const word = (s.description.match(/[A-Za-zÅÄÖåäö]{4,}/g) ?? [])
+      .sort((a, b) => b.length - a.length)[0] ?? s.description.slice(0, 12);
+    if (!s.categoryId) { toast.error("Sätt en kategori först"); return; }
+    dispatch({ type: "UPSERT_RULE", rule: { id: crypto.randomUUID(), pattern: word, matchType: "contains", categoryId: s.categoryId, payerId: defaultPayer || null, priority: 0 } });
+    setStaged(prev => prev.map(p => {
+      if (p.rowIndex === s.rowIndex || p.matchedRuleId) return p;
+      if (p.description.toLowerCase().includes(word.toLowerCase())) return { ...p, categoryId: s.categoryId, matchedRuleId: "pending" };
+      return p;
+    }));
+    toast.success(`Regel sparad: "${word}" → ${state.categories.find(c => c.id === s.categoryId)?.name ?? ""}`);
+  };
+
+  const selectedCount = useMemo(() => staged.filter(s => s.selected).length, [staged]);
+  const dupCount = useMemo(() => staged.filter(s => s.isDuplicate).length, [staged]);
+
+  const updateRow = (rowIndex: number, patch: Partial<StagedTx>) =>
+    setStaged(prev => prev.map(s => s.rowIndex === rowIndex ? { ...s, ...patch } : s));
+
+  const toggleAll = (checked: boolean) =>
+    setStaged(prev => prev.map(s => ({ ...s, selected: checked && !s.isDuplicate ? true : checked })));
+
+  const doImport = async () => {
+    const toImport = staged.filter(s => s.selected);
+    if (!toImport.length) { toast.error("Markera minst en transaktion"); return; }
+    if (!defaultPayer) { toast.error("Välj betalare"); return; }
+    setImporting(true);
+    for (const s of toImport) {
+      const effectivePayer = s.isPrivate && user?.id ? user.id : (s.payerId || defaultPayer);
+      dispatch({
+        type: "ADD_TX",
+        tx: {
+          date: s.date,
+          amount: s.amount,
+          type: s.type,
+          categoryId: s.categoryId,
+          payerId: effectivePayer,
+          description: s.description,
+          isPrivate: s.isPrivate,
+          ownerId: s.isPrivate ? user?.id : undefined,
+        },
+      });
+    }
+    toast.success(`${toImport.length} transaktioner importerade`);
+    setImporting(false);
+    setStep("upload");
+    setStaged([]);
+    setParsed(null);
+    setFileName("");
+  };
+
+  const steps: ImportStep[] = ["upload", "map", "review"];
 
   return (
     <Card className="p-6 rounded-2xl shadow-soft border-0 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-display font-semibold">Kategorier & budget</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Fasta kategorier beräknas automatiskt från återkommande transaktioner</p>
-        </div>
-        <Button size="sm" onClick={() => setAdding(true)} className="rounded-xl"><Plus className="h-4 w-4" /> Ny</Button>
+      <div>
+        <h2 className="font-display font-semibold">Importera transaktioner</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Ladda upp en CSV från din bank — vi mappar kolumnerna och föreslår kategorier automatiskt.</p>
       </div>
-      <div className="space-y-2">
-        {state.categories.map(c => (
-          <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-muted/30">
-            <div className="text-xl w-8 text-center">{c.icon}</div>
-            <Input
-              value={c.name}
-              onChange={e => dispatch({ type: "UPSERT_CATEGORY", cat: { ...c, name: e.target.value } })}
-              className="rounded-lg max-w-[180px] h-9"
-            />
-            {c.isFixed ? (
-              <div className="flex items-center gap-1.5 max-w-[120px] w-full">
-                <div className="h-9 rounded-lg bg-muted/60 border border-dashed px-3 flex items-center justify-between gap-1 w-full text-sm text-muted-foreground">
-                  <Lock className="h-3 w-3 shrink-0" />
-                  <span className="tabular-nums">{effectiveBudgets[c.id].toLocaleString("sv-SE")}</span>
-                </div>
-              </div>
-            ) : (
-              <Input
-                type="number"
-                value={c.budget || ""}
-                onChange={e => dispatch({ type: "UPSERT_CATEGORY", cat: { ...c, budget: parseFloat(e.target.value) || 0 } })}
-                onFocus={e => e.target.select()}
-                placeholder="0"
-                className="rounded-lg max-w-[120px] h-9"
-              />
-            )}
-            <span className="text-xs text-muted-foreground hidden md:inline">SEK/mån</span>
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-xs text-muted-foreground hidden md:inline">Fast</span>
-              <Switch checked={!!c.isFixed} onCheckedChange={v => dispatch({ type: "UPSERT_CATEGORY", cat: { ...c, isFixed: v } })} />
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => dispatch({ type: "DELETE_CATEGORY", id: c.id })} aria-label={`Ta bort kategori ${c.name}`}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
+
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 text-sm">
+        {steps.map((s, i) => (
+          <div key={s} className="flex items-center gap-2">
+            <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-medium",
+              step === s ? "bg-primary text-primary-foreground"
+              : steps.indexOf(step) > i ? "bg-emerald-500 text-white"
+              : "bg-muted text-muted-foreground"
+            )}>
+              {steps.indexOf(step) > i ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
             </div>
+            <span className={cn(step === s ? "font-medium" : "text-muted-foreground")}>
+              {s === "upload" ? "Ladda upp" : s === "map" ? "Mappa kolumner" : "Granska & importera"}
+            </span>
+            {i < 2 && <div className="w-8 h-px bg-border" />}
           </div>
         ))}
       </div>
 
-      {adding && (
-        <div className="p-4 rounded-xl border border-dashed space-y-3">
-          <div className="flex flex-wrap gap-1">
-            {ICONS.map(i => (
-              <button key={i} onClick={() => setIcon(i)} className={`h-9 w-9 rounded-lg text-lg ${icon === i ? "bg-primary text-primary-foreground" : "bg-muted"}`}>{i}</button>
+      {/* STEP 1: Upload */}
+      {step === "upload" && (
+        <div className="space-y-4">
+          <div
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            onClick={() => fileRef.current?.click()}
+            className={cn("border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors",
+              dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
+            )}
+          >
+            <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+            <div className="font-medium">Släpp CSV-fil här eller klicka för att välja</div>
+            <div className="text-sm text-muted-foreground mt-1">Stödda banker: Swedbank, SEB, Handelsbanken, Nordea, ICA Banken m.fl.</div>
+            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {BANK_PRESETS.map(b => (
+              <div key={b.id} className="p-3 rounded-xl border border-border text-sm flex items-center gap-2">
+                <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />{b.name}
+              </div>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Input placeholder="Namn" value={name} onChange={e => setName(e.target.value)} className="rounded-xl" />
-            <Input placeholder="Budget SEK" value={budget} onChange={e => setBudget(e.target.value)} onFocus={e => e.target.select()} type="number" className="rounded-xl" />
+        </div>
+      )}
+
+      {/* STEP 2: Mapping */}
+      {step === "map" && parsed && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium">{fileName}</div>
+              <div className="text-sm text-muted-foreground">
+                {parsed.rows.length} rader · {parsed.headers.length} kolumner
+                {parsed.detectedPreset && (
+                  <Badge variant="secondary" className="ml-2 gap-1"><Sparkles className="h-3 w-3" /> Identifierad: {parsed.detectedPreset.name}</Badge>
+                )}
+              </div>
+            </div>
+            <Button variant="ghost" onClick={() => setStep("upload")}><ArrowLeft className="h-4 w-4" /> Byt fil</Button>
           </div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="ghost" onClick={() => setAdding(false)}>Avbryt</Button>
-            <Button onClick={add} className="bg-gradient-primary rounded-xl">Lägg till</Button>
+          <div className="grid md:grid-cols-3 gap-4">
+            {(["date", "amount", "description"] as const).map(field => (
+              <div key={field}>
+                <label className="text-sm font-medium mb-1.5 block">
+                  {field === "date" ? "Datum" : field === "amount" ? "Belopp" : "Beskrivning"}
+                </label>
+                <Select value={mapping[field] || undefined} onValueChange={v => setMapping({ ...mapping, [field]: v })}>
+                  <SelectTrigger><SelectValue placeholder="Välj kolumn" /></SelectTrigger>
+                  <SelectContent>
+                    {parsed.headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div className="text-sm font-medium mb-2">Förhandsgranskning</div>
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40">
+                  <tr>{parsed.headers.map(h => <th key={h} className={cn("text-left p-2 font-medium", Object.values(mapping).includes(h) && "text-primary")}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {parsed.rows.slice(0, 5).map((row, i) => (
+                    <tr key={i} className="border-t border-border">
+                      {parsed.headers.map(h => <td key={h} className="p-2 text-muted-foreground">{row[h]}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={goReview} className="bg-gradient-primary">Fortsätt till granskning</Button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 3: Review */}
+      {step === "review" && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Badge className="bg-primary">{selectedCount} valda</Badge>
+              {ruleMatchedCount > 0 && <Badge variant="secondary" className="gap-1"><Zap className="h-3 w-3 text-primary" /> {ruleMatchedCount} via regler</Badge>}
+              {dupCount > 0 && <Badge variant="secondary" className="gap-1"><AlertTriangle className="h-3 w-3 text-amber-500" /> {dupCount} möjliga dubbletter</Badge>}
+              <span className="text-sm text-muted-foreground">av {staged.length} totalt</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Standard-betalare:</span>
+              <Select value={defaultPayer} onValueChange={setDefaultPayer}>
+                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {state.persons.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-border max-h-[60vh]">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 sticky top-0">
+                <tr>
+                  <th className="p-2 w-10"><Checkbox checked={selectedCount === staged.length} onCheckedChange={v => toggleAll(!!v)} /></th>
+                  <th className="text-left p-2 font-medium">Datum</th>
+                  <th className="text-left p-2 font-medium">Beskrivning</th>
+                  <th className="text-left p-2 font-medium">Kategori</th>
+                  <th className="text-right p-2 font-medium">Belopp</th>
+                  <th className="p-2 w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {staged.map(s => (
+                  <tr key={s.rowIndex} className={cn("border-t border-border", s.isDuplicate && "bg-amber-50/50 dark:bg-amber-950/20")}>
+                    <td className="p-2"><Checkbox checked={s.selected} onCheckedChange={v => updateRow(s.rowIndex, { selected: !!v })} /></td>
+                    <td className="p-2 text-muted-foreground whitespace-nowrap">{dateLabel(s.date)}</td>
+                    <td className="p-2">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate max-w-[260px]">{s.description}</span>
+                        {s.matchedRuleId && <Badge variant="outline" className="text-[10px] h-5 border-primary/40 text-primary gap-0.5"><Zap className="h-2.5 w-2.5" /> regel</Badge>}
+                        {s.isDuplicate && <Badge variant="outline" className="text-[10px] h-5 border-amber-500 text-amber-700 dark:text-amber-400">dubblett</Badge>}
+                      </div>
+                    </td>
+                    <td className="p-2">
+                      <Select value={s.categoryId} onValueChange={v => updateRow(s.rowIndex, { categoryId: v })}>
+                        <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {state.categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className={cn("p-2 text-right font-medium whitespace-nowrap tabular-nums", s.type === "income" ? "text-emerald-600" : "text-foreground")}>
+                      {s.type === "income" ? "+" : "−"}{sek(s.amount)}
+                    </td>
+                    <td className="p-2 text-right">
+                      {!s.matchedRuleId && (
+                        <Button size="sm" variant="ghost" className="h-7 px-2" title="Spara som regel" onClick={() => saveAsRule(s)}>
+                          <Wand2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-between">
+            <Button variant="ghost" onClick={() => setStep("map")}><ArrowLeft className="h-4 w-4" /> Tillbaka</Button>
+            <Button onClick={doImport} disabled={importing || selectedCount === 0} className="bg-gradient-primary">
+              Importera {selectedCount} transaktioner
+            </Button>
           </div>
         </div>
       )}

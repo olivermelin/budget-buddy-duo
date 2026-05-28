@@ -73,7 +73,7 @@ export function buildNotifications(state: AppState): AppNotification[] {
       title: `${newSubs.length} nya återkommande utgift${newSubs.length === 1 ? "" : "er"}`,
       description: `Vi hittade ${newSubs.length} mönster som ser ut som abonnemang. Skapa mallar för bättre planering.`,
       severity: "info",
-      href: "/prenumerationer",
+      href: "/statistik",
       createdAt: today.toISOString(),
     });
   }

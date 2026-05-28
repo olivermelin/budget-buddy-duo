@@ -23,8 +23,9 @@ export const monthShort = (d: Date) =>
   new Intl.DateTimeFormat("sv-SE", { month: "short" }).format(d).replace(".", "");
 
 export const dateLabel = (iso: string) => {
-  // Parsa YYYY-MM-DD lokalt för att undvika UTC-skift (new Date("YYYY-MM-DD") = UTC midnatt)
-  const [y, m, d] = iso.split("-").map(Number);
+  // Parsa YYYY-MM-DD lokalt för att undvika UTC-skift (new Date("YYYY-MM-DD") = UTC midnatt).
+  // Strippa eventuell tidsdel så att både "YYYY-MM-DD" och "YYYY-MM-DDThh:mm:ssZ" fungerar.
+  const [y, m, d] = iso.split("T")[0].split("-").map(Number);
   return new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" }).format(new Date(y, m - 1, d));
 };
 
