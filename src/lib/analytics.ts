@@ -34,7 +34,9 @@ export function computeEffectiveBudgets(state: AppState): Record<string, number>
 export interface MonthPlan {
   plannedIncome: number;        // Summa aktiva återkommande inkomster
   plannedFixed: number;         // Summa aktiva återkommande fasta utgifter
-  plannedFreeToSpend: number;   // plannedIncome − plannedFixed
+  plannedLoans: number;         // Summa lånkostnader (monthlyPayment + monthlyFee)
+  plannedSavings: number;       // Summa månadsparande från sparmål
+  plannedFreeToSpend: number;   // plannedIncome − plannedFixed − plannedLoans − plannedSavings
   actualVariable: number;       // Faktiska rörliga utgifter denna månad
   actualFixed: number;          // Faktiska fasta utgifter denna månad
   remaining: number;            // plannedFreeToSpend − actualVariable
@@ -43,6 +45,7 @@ export interface MonthPlan {
 }
 
 export function buildMonthPlan(state: AppState, year: number, month: number): MonthPlan {
+  const payDay = state.settings.payDay ?? 1;
   const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
 
   // Planen avser hushållets delade ekonomi — privata recurring exkluderas.
@@ -55,23 +58,29 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
     else plannedFixed += rt.amount;
   }
 
-  const txs = state.transactions.filter(t => inMonth(t.date, year, month));
+  const txs = state.transactions.filter(t => inMonth(t.date, year, month, payDay));
   let actualVariable = 0;
   let actualFixed = 0;
+  let settlementsOut = 0;
   for (const t of txs) {
+    if (t.type === "settlement") { settlementsOut += t.amount; continue; }
     if (t.type !== "expense") continue;
     if (!isShared(t)) continue;
     if (isFixedExpense(t, fixedCats)) actualFixed += t.amount;
     else actualVariable += t.amount;
   }
 
-  const plannedFreeToSpend = Math.max(0, plannedIncome - plannedFixed);
-  const remaining = plannedFreeToSpend - actualVariable;
+  const plannedLoans = state.loans.reduce((s, l) => s + l.monthlyPayment + (l.monthlyFee ?? 0), 0);
+  const plannedSavings = state.goals.reduce((s, g) => s + (g.monthlyContribution ?? 0), 0);
+  const plannedFreeToSpend = Math.max(0, plannedIncome - plannedFixed - plannedLoans - plannedSavings);
+  const remaining = plannedFreeToSpend - actualVariable - settlementsOut;
   const spendPercent = plannedFreeToSpend > 0 ? actualVariable / plannedFreeToSpend : 0;
 
   return {
     plannedIncome,
     plannedFixed,
+    plannedLoans,
+    plannedSavings,
     plannedFreeToSpend,
     actualVariable,
     actualFixed,
@@ -81,12 +90,21 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
   };
 }
 
-export const inMonth = (iso: string, year: number, month: number) => {
-  // Parsa YYYY-MM-DD direkt för att undvika UTC-till-lokal-konvertering.
-  // new Date("YYYY-MM-DD") tolkas som UTC-midnatt, vilket i t.ex. UTC-5
-  // skiftar den 1:a i månaden till föregående månads sista dag.
-  const [y, m] = iso.split("-").map(Number);
-  return y === year && m - 1 === month;
+// Kontrollerar om ett ISO-datum tillhör den givna perioden.
+// payDay = 1 (standard): kalendermånad (1:a → sista)
+// payDay > 1: löneperiod — "månad M" = payDay i månad M-1 t.o.m. payDay-1 i månad M.
+// Exempel: payDay=25, månad=maj (month=4) → 25 apr – 24 maj.
+export const inMonth = (iso: string, year: number, month: number, payDay = 1): boolean => {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (payDay <= 1) {
+    // Kalendermånad — parsar direkt för att undvika UTC-midnatt-skift.
+    return y === year && m - 1 === month;
+  }
+  // Löneperiod: from = föregående månad dag payDay, to = denna månad dag payDay-1
+  const txDate = new Date(y, m - 1, d);
+  const start = new Date(year, month - 1, payDay);
+  const end = new Date(year, month, payDay - 1);
+  return txDate >= start && txDate <= end;
 };
 
 export interface MonthSummary {
@@ -112,12 +130,23 @@ export interface MonthSummary {
   };
 }
 
-const isFixedExpense = (t: { categoryId: string }, fixedCats: Set<string>) =>
-  fixedCats.has(t.categoryId);
+// Kategorier markerade som isFixed i inställningarna.
+function buildFixedCatIds(state: AppState): Set<string> {
+  return new Set<string>(state.categories.filter(c => c.isFixed).map(c => c.id));
+}
+
+// En transaktion är "fast" om:
+//  1. dess kategori är markerad isFixed, ELLER
+//  2. den är auto-genererad från en återkommande mall (isRecurring: true)
+// Inte hela kategorin — annars klassas t.ex. matinköp i "Mat & Hushåll" som fasta
+// bara för att Billån råkar ligga i samma kategori.
+const isFixedExpense = (t: { categoryId?: string; isRecurring?: boolean }, fixedCats: Set<string>) =>
+  fixedCats.has(t.categoryId ?? "") || !!t.isRecurring;
 
 export function summarizeMonth(state: AppState, year: number, month: number): MonthSummary {
-  const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
-  const txs = state.transactions.filter(t => inMonth(t.date, year, month));
+  const payDay = state.settings.payDay ?? 1;
+  const fixedCats = buildFixedCatIds(state);
+  const txs = state.transactions.filter(t => inMonth(t.date, year, month, payDay));
   let income = 0, fixed = 0, variable = 0;
   let personalFixed = 0, personalVariable = 0;
   const byCategory: Record<string, number> = {};
@@ -163,7 +192,12 @@ export function lastNMonths(state: AppState, n: number, ref = new Date()): Month
 }
 
 export function detectSubscriptions(state: AppState): Subscription[] {
-  // Group by normalized description + rounded amount
+  const now = new Date();
+  const recentMonthKeys = new Set([
+    monthKey(new Date(now.getFullYear(), now.getMonth(), 1)),
+    monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+  ]);
+
   const groups: Record<string, Transaction[]> = {};
   for (const t of state.transactions) {
     if (t.type !== "expense") continue;
@@ -173,11 +207,13 @@ export function detectSubscriptions(state: AppState): Subscription[] {
   const subs: Subscription[] = [];
   for (const [key, txs] of Object.entries(groups)) {
     if (txs.length < 2) continue;
-    // Need to occur in at least 2 different months
     const months = new Set(txs.map(t => monthKey(t.date)));
     if (months.size < 2) continue;
     const sorted = [...txs].sort((a, b) => b.date.localeCompare(a.date));
     const override = state.subscriptionOverrides[key];
+    // Nollställ "cancelled"-override om transaktioner dykt upp igen nyligen
+    const hasRecentTx = txs.some(t => recentMonthKeys.has(monthKey(t.date)));
+    const effectiveStatus = override === "cancelled" && hasRecentTx ? "active" : (override ?? "active");
     subs.push({
       id: key,
       description: txs[0].description,
@@ -185,7 +221,7 @@ export function detectSubscriptions(state: AppState): Subscription[] {
       categoryId: txs[0].categoryId,
       occurrences: months.size,
       lastDate: sorted[0].date,
-      status: override ?? "active",
+      status: effectiveStatus,
       isPrivate: txs.some(t => t.isPrivate),
     });
   }
@@ -198,10 +234,76 @@ export interface Settlement {
   amount: number;
 }
 
+function buildSettlements(diff: Record<string, number>, persons: AppState["persons"]): Settlement[] {
+  const creditors = persons
+    .map(p => ({ id: p.id, amount: diff[p.id] ?? 0 }))
+    .filter(x => x.amount > 0.5)
+    .sort((a, b) => b.amount - a.amount);
+  const debtors = persons
+    .map(p => ({ id: p.id, amount: -(diff[p.id] ?? 0) }))
+    .filter(x => x.amount > 0.5)
+    .sort((a, b) => b.amount - a.amount);
+
+  const settlements: Settlement[] = [];
+  let ci = 0, di = 0;
+  while (ci < creditors.length && di < debtors.length) {
+    const pay = Math.min(creditors[ci].amount, debtors[di].amount);
+    if (pay > 0.5) settlements.push({ from: debtors[di].id, to: creditors[ci].id, amount: pay });
+    creditors[ci].amount -= pay;
+    debtors[di].amount -= pay;
+    if (creditors[ci].amount < 0.5) ci++;
+    if (debtors[di].amount < 0.5) di++;
+  }
+  return settlements;
+}
+
+export function calcCumulativeSplit(state: AppState) {
+  const fixedCats = buildFixedCatIds(state);
+  const txs = state.transactions.filter(t => t.type === "expense" && isShared(t));
+  const persons = state.persons;
+
+  if (persons.length === 0) return { diff: {} as Record<string, number>, settlements: [] as Settlement[] };
+
+  const fixedTotal = txs.filter(t => isFixedExpense(t, fixedCats)).reduce((s, t) => s + t.amount, 0);
+  const variableTotal = txs.filter(t => !isFixedExpense(t, fixedCats)).reduce((s, t) => s + t.amount, 0);
+  const total = fixedTotal + variableTotal;
+
+  const paid: Record<string, number> = {};
+  for (const p of persons) paid[p.id] = 0;
+  for (const t of txs) {
+    if (paid[t.payerId] !== undefined) paid[t.payerId] += t.amount;
+  }
+
+  // Fasta: inkomstbaserat eller lika. Rörliga: alltid lika.
+  const equalVariable = variableTotal / persons.length;
+  const share: Record<string, number> = {};
+  if (state.settings.splitMode === "50/50") {
+    for (const p of persons) share[p.id] = total / persons.length;
+  } else {
+    const totalIncome = persons.reduce((s, p) => s + p.income, 0) || 1;
+    for (const p of persons) {
+      share[p.id] = fixedTotal * (p.income / totalIncome) + equalVariable;
+    }
+  }
+
+  const diff: Record<string, number> = {};
+  for (const p of persons) diff[p.id] = (paid[p.id] ?? 0) - share[p.id];
+
+  for (const s of state.transactions.filter(t => t.type === "settlement")) {
+    if (s.payerId && s.receiverId) {
+      diff[s.payerId] = (diff[s.payerId] ?? 0) + s.amount;
+      diff[s.receiverId] = (diff[s.receiverId] ?? 0) - s.amount;
+    }
+  }
+
+  return { diff, settlements: buildSettlements(diff, persons) };
+}
+
 export function calcSplit(state: AppState, year: number, month: number) {
-  const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
+  const payDay = state.settings.payDay ?? 1;
+  const fixedCats = buildFixedCatIds(state);
   // Privata transaktioner exkluderas helt från delningen — de berör endast ägaren.
-  const txs = state.transactions.filter(t => t.type === "expense" && isShared(t) && inMonth(t.date, year, month));
+  const txs = state.transactions.filter(t => t.type === "expense" && isShared(t) && inMonth(t.date, year, month, payDay));
   const persons = state.persons;
 
   const fixedTxs = txs.filter(t => isFixedExpense(t, fixedCats));
@@ -225,16 +327,17 @@ export function calcSplit(state: AppState, year: number, month: number) {
     return { total, fixedTotal, variableTotal, paid, fixedShare, variableShare, share, diff: {}, settlements: [] as Settlement[] };
   }
 
-  // Fasta och rörliga utgifter delas båda enligt valt läge (50/50 eller inkomstbaserat)
+  // Fasta: delas enligt valt läge (lika eller inkomstbaserat)
+  // Rörliga: delas alltid lika (50/50) — dagligvaror och vardagsutgifter ska inte viktas mot lön
+  const equalVariable = variableTotal / persons.length;
   if (state.settings.splitMode === "50/50") {
     const equalFixed = fixedTotal / persons.length;
-    const equalVariable = variableTotal / persons.length;
     for (const p of persons) { fixedShare[p.id] = equalFixed; variableShare[p.id] = equalVariable; }
   } else {
     const totalIncome = persons.reduce((s, p) => s + p.income, 0) || 1;
     for (const p of persons) {
       fixedShare[p.id] = fixedTotal * (p.income / totalIncome);
-      variableShare[p.id] = variableTotal * (p.income / totalIncome);
+      variableShare[p.id] = equalVariable;
     }
   }
 
@@ -244,28 +347,16 @@ export function calcSplit(state: AppState, year: number, month: number) {
   const diff: Record<string, number> = {};
   for (const p of persons) diff[p.id] = (paid[p.id] ?? 0) - share[p.id];
 
-  // Greedy pairwise settlement: largest debtor pays largest creditor each step
-  const creditors = persons
-    .map(p => ({ id: p.id, amount: diff[p.id] }))
-    .filter(x => x.amount > 0.5)
-    .sort((a, b) => b.amount - a.amount);
-  const debtors = persons
-    .map(p => ({ id: p.id, amount: -diff[p.id] }))
-    .filter(x => x.amount > 0.5)
-    .sort((a, b) => b.amount - a.amount);
-
-  const settlements: Settlement[] = [];
-  let ci = 0, di = 0;
-  while (ci < creditors.length && di < debtors.length) {
-    const pay = Math.min(creditors[ci].amount, debtors[di].amount);
-    if (pay > 0.5) {
-      settlements.push({ from: debtors[di].id, to: creditors[ci].id, amount: pay });
+  // Applicera settlement-betalningar från denna månad — de påverkar differensen
+  const settlementsThisMonth = state.transactions.filter(t => t.type === "settlement" && inMonth(t.date, year, month, payDay));
+  for (const settlement of settlementsThisMonth) {
+    if (settlement.payerId && settlement.receiverId) {
+      // Betalaren får "kredit" för att ha betalat
+      diff[settlement.payerId] = (diff[settlement.payerId] ?? 0) + settlement.amount;
+      // Mottagaren får mindre kredit
+      diff[settlement.receiverId] = (diff[settlement.receiverId] ?? 0) - settlement.amount;
     }
-    creditors[ci].amount -= pay;
-    debtors[di].amount -= pay;
-    if (creditors[ci].amount < 0.5) ci++;
-    if (debtors[di].amount < 0.5) di++;
   }
 
-  return { total, fixedTotal, variableTotal, paid, fixedShare, variableShare, share, diff, settlements };
+  return { total, fixedTotal, variableTotal, paid, fixedShare, variableShare, share, diff, settlements: buildSettlements(diff, persons) };
 }

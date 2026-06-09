@@ -6,7 +6,7 @@ import { AppState, Transaction, Category, Person, SavingsGoal } from "@/types/bu
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
-    settings: { householdName: "Testfamiljen", splitMode: "50/50", theme: "system" },
+    settings: { householdName: "Testfamiljen", splitMode: "50/50", theme: "system", payDay: 1 },
     persons: [],
     categories: [],
     transactions: [],

@@ -6,7 +6,7 @@ import { AppState, Transaction, Category, Person } from "@/types/budget";
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
-    settings: { householdName: "Test", splitMode: "50/50", theme: "system" },
+    settings: { householdName: "Test", splitMode: "50/50", theme: "system", payDay: 1 },
     persons: [],
     categories: [],
     transactions: [],
@@ -278,7 +278,7 @@ describe("detectSubscriptions", () => {
 describe("calcSplit", () => {
   it("beräknar 50/50-fördelning korrekt", () => {
     const state = makeState({
-      settings: { householdName: "Test", splitMode: "50/50", theme: "system" },
+      settings: { householdName: "Test", splitMode: "50/50", theme: "system", payDay: 1 },
       persons: [makePerson({ id: "p-1" }), makePerson({ id: "p-2" })],
       categories: [makeCategory({ id: "cat-1" })],
       transactions: [
@@ -293,7 +293,7 @@ describe("calcSplit", () => {
 
   it("beräknar settlement i 50/50-läge", () => {
     const state = makeState({
-      settings: { householdName: "Test", splitMode: "50/50", theme: "system" },
+      settings: { householdName: "Test", splitMode: "50/50", theme: "system", payDay: 1 },
       persons: [makePerson({ id: "p-1" }), makePerson({ id: "p-2" })],
       categories: [makeCategory({ id: "cat-1" })],
       transactions: [
@@ -309,23 +309,45 @@ describe("calcSplit", () => {
     expect(result.settlements[0].amount).toBe(500);
   });
 
-  it("beräknar inkomstbaserad fördelning", () => {
+  it("beräknar inkomstbaserad fördelning för fasta utgifter", () => {
+    // Fasta utgifter delas inkomstbaserat; rörliga alltid 50/50.
+    // Här testas enbart fasta (isFixed: true) för att verifiera income-split.
     const state = makeState({
       settings: { householdName: "Test", splitMode: "income", theme: "system" },
       persons: [
         makePerson({ id: "p-1", income: 30000 }),
         makePerson({ id: "p-2", income: 10000 }),
       ],
-      categories: [makeCategory({ id: "cat-1" })],
+      categories: [makeCategory({ id: "cat-1", isFixed: true })],
       transactions: [
-        makeTx({ date: "2026-03-10", amount: 4000, type: "expense", payerId: "p-1" }),
+        makeTx({ date: "2026-03-10", amount: 4000, type: "expense", payerId: "p-1", categoryId: "cat-1" }),
       ],
     });
     const result = calcSplit(state, 2026, 2);
     expect(result.total).toBe(4000);
-    // p-1 tjänar 75% => share = 3000, p-2 tjänar 25% => share = 1000
+    // p-1 tjänar 75% => fixedShare = 3000, p-2 tjänar 25% => fixedShare = 1000
+    expect(result.fixedShare["p-1"]).toBe(3000);
+    expect(result.fixedShare["p-2"]).toBe(1000);
     expect(result.share["p-1"]).toBe(3000);
     expect(result.share["p-2"]).toBe(1000);
+  });
+
+  it("delar alltid rörliga utgifter 50/50 oavsett split-läge", () => {
+    const state = makeState({
+      settings: { householdName: "Test", splitMode: "income", theme: "system" },
+      persons: [
+        makePerson({ id: "p-1", income: 30000 }),
+        makePerson({ id: "p-2", income: 10000 }),
+      ],
+      categories: [makeCategory({ id: "cat-1", isFixed: false })],
+      transactions: [
+        makeTx({ date: "2026-03-10", amount: 4000, type: "expense", payerId: "p-1", categoryId: "cat-1" }),
+      ],
+    });
+    const result = calcSplit(state, 2026, 2);
+    // Rörliga är alltid 50/50 oavsett inkomstfördelning
+    expect(result.variableShare["p-1"]).toBe(2000);
+    expect(result.variableShare["p-2"]).toBe(2000);
   });
 
   it("hanterar tomt persons-array utan krasch", () => {
@@ -353,7 +375,7 @@ describe("calcSplit", () => {
 
   it("skapar ingen settlement om båda betalar exakt sin andel", () => {
     const state = makeState({
-      settings: { householdName: "Test", splitMode: "50/50", theme: "system" },
+      settings: { householdName: "Test", splitMode: "50/50", theme: "system", payDay: 1 },
       persons: [makePerson({ id: "p-1" }), makePerson({ id: "p-2" })],
       categories: [makeCategory({ id: "cat-1" })],
       transactions: [
@@ -367,7 +389,7 @@ describe("calcSplit", () => {
 
   it("exkluderar privata utgifter helt från delningen", () => {
     const state = makeState({
-      settings: { householdName: "Test", splitMode: "50/50", theme: "system" },
+      settings: { householdName: "Test", splitMode: "50/50", theme: "system", payDay: 1 },
       persons: [makePerson({ id: "p-1" }), makePerson({ id: "p-2" })],
       categories: [makeCategory({ id: "cat-1" })],
       transactions: [

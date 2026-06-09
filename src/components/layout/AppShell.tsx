@@ -15,16 +15,16 @@ import { cn } from "@/lib/utils";
 const nav = [
   { to: "/", label: "Översikt", icon: LayoutDashboard, end: true },
   { to: "/budget", label: "Budget", icon: PiggyBank },
-  { to: "/transaktioner", label: "Transaktioner", icon: Receipt },
-  { to: "/parlage", label: "Fördelning", icon: Users },
-  { to: "/sparmal", label: "Sparmål", icon: Target },
-  { to: "/lan", label: "Lån", icon: Landmark },
-  { to: "/statistik", label: "Statistik", icon: BarChart3 },
-  { to: "/installningar", label: "Inställningar", icon: Settings },
+  { to: "/transactions", label: "Transaktioner", icon: Receipt },
+  { to: "/couple", label: "Fördelning", icon: Users },
+  { to: "/goals", label: "Sparmål", icon: Target },
+  { to: "/loans", label: "Lån", icon: Landmark },
+  { to: "/statistics", label: "Statistik", icon: BarChart3 },
+  { to: "/settings", label: "Inställningar", icon: Settings },
 ];
 
 // Mobile bottom nav: keep 4 most-used items visible, rest in a "Mer"-overflow
-const PRIMARY_PATHS = ["/", "/transaktioner", "/sparmal", "/parlage"];
+const PRIMARY_PATHS = ["/", "/transactions", "/goals", "/couple"];
 const primaryNav = nav.filter(n => PRIMARY_PATHS.includes(n.to));
 const overflowNav = nav.filter(n => !PRIMARY_PATHS.includes(n.to));
 

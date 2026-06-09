@@ -36,7 +36,8 @@ const App = () => (
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
-              <Route path="/integritetspolicy" element={<PrivacyPolicy />} />
+              <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+              <Route path="/integritetspolicy" element={<Navigate to="/privacy-policy" replace />} />
               <Route
                 path="/onboarding"
                 element={
@@ -58,15 +59,22 @@ const App = () => (
               >
                 <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
                 <Route path="/budget" element={<ErrorBoundary><Budget /></ErrorBoundary>} />
-                <Route path="/transaktioner" element={<ErrorBoundary><Transactions /></ErrorBoundary>} />
-                <Route path="/parlage" element={<ErrorBoundary><CoupleMode /></ErrorBoundary>} />
-                <Route path="/sparmal" element={<ErrorBoundary><Goals /></ErrorBoundary>} />
-                <Route path="/lan" element={<ErrorBoundary><Loans /></ErrorBoundary>} />
-                <Route path="/statistik" element={<ErrorBoundary><Statistics /></ErrorBoundary>} />
-                <Route path="/installningar" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
-                <Route path="/arsoversikt" element={<Navigate to="/statistik" replace />} />
-                <Route path="/prenumerationer" element={<Navigate to="/statistik" replace />} />
-                <Route path="/import" element={<Navigate to="/installningar" replace />} />
+                <Route path="/transactions" element={<ErrorBoundary><Transactions /></ErrorBoundary>} />
+                <Route path="/couple" element={<ErrorBoundary><CoupleMode /></ErrorBoundary>} />
+                <Route path="/goals" element={<ErrorBoundary><Goals /></ErrorBoundary>} />
+                <Route path="/loans" element={<ErrorBoundary><Loans /></ErrorBoundary>} />
+                <Route path="/statistics" element={<ErrorBoundary><Statistics /></ErrorBoundary>} />
+                <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+                {/* Redirects för gamla svenska URL:er */}
+                <Route path="/transaktioner" element={<Navigate to="/transactions" replace />} />
+                <Route path="/parlage" element={<Navigate to="/couple" replace />} />
+                <Route path="/sparmal" element={<Navigate to="/goals" replace />} />
+                <Route path="/lan" element={<Navigate to="/loans" replace />} />
+                <Route path="/statistik" element={<Navigate to="/statistics" replace />} />
+                <Route path="/installningar" element={<Navigate to="/settings" replace />} />
+                <Route path="/arsoversikt" element={<Navigate to="/statistics" replace />} />
+                <Route path="/prenumerationer" element={<Navigate to="/statistics" replace />} />
+                <Route path="/import" element={<Navigate to="/settings" replace />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -6,7 +6,9 @@
       "Bash(npm install *)",
       "PowerShell(git add \"C:\\\\Projekt\\\\budget-buddy-duo\\\\.claude\\\\worktrees\\\\competent-shirley-29922d\\\\src\\\\pages\\\\Loans.tsx\")",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(npm run *)"
     ]
-  }
+  },
+  "prefersReducedMotion": false
 }

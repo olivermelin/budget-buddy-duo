@@ -29,6 +29,18 @@ export const dateLabel = (iso: string) => {
   return new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" }).format(new Date(y, m - 1, d));
 };
 
+// Visar perioden för en given "månad" med lönedag.
+// payDay=1 → "juni 2026" (kalendermånad)
+// payDay=25 → "25 maj – 24 jun 2026" (löneperiod)
+export const periodLabel = (monthDate: Date, payDay: number): string => {
+  if (payDay <= 1) return monthLabel(monthDate);
+  const start = new Date(monthDate.getFullYear(), monthDate.getMonth() - 1, payDay);
+  const end = new Date(monthDate.getFullYear(), monthDate.getMonth(), payDay - 1);
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" }).format(d).replace(".", "");
+  return `${fmt(start)} – ${fmt(end)} ${monthDate.getFullYear()}`;
+};
+
 export const monthKey = (d: Date | string) => {
   if (typeof d === "string") {
     // Undvik UTC-skift: ta bara YYYY-MM direkt från strängen

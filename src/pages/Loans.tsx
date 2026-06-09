@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { Plus, Trash2, TrendingDown, AlertTriangle, Banknote, Calendar, Sparkles } from "lucide-react";
+import { Plus, Trash2, TrendingDown, AlertTriangle, Banknote, Calendar, Sparkles, Repeat } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -364,9 +364,38 @@ export default function Loans() {
                     </div>
                   )}
 
-                  <div className="mt-4">
-                    <Button onClick={() => setPaymentFor(l)} variant="outline" className="w-full rounded-xl">
+                  <div className="mt-4 flex gap-2">
+                    <Button onClick={() => setPaymentFor(l)} variant="outline" className="flex-1 rounded-xl">
                       <Plus className="h-4 w-4" /> Extra amortering
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 rounded-xl"
+                      onClick={() => {
+                        const totalMonthly = l.monthlyPayment + (l.monthlyFee ?? 0);
+                        if (totalMonthly <= 0) { toast.error("Lånet saknar månadskostnad"); return; }
+                        const alreadyExists = state.recurringTransactions.some(
+                          rt => rt.description === l.name && rt.amount === totalMonthly
+                        );
+                        if (alreadyExists) { toast.info("Återkommande finns redan för detta lån"); return; }
+                        dispatch({
+                          type: "UPSERT_RECURRING",
+                          rt: {
+                            id: crypto.randomUUID(),
+                            description: l.name,
+                            amount: totalMonthly,
+                            type: "expense",
+                            categoryId: state.categories.find(c => c.isFixed)?.id ?? state.categories[0]?.id ?? "",
+                            payerId: l.ownerId ?? state.persons[0]?.id ?? "",
+                            dayOfMonth: 25,
+                            isActive: true,
+                            lastGeneratedMonth: null,
+                          },
+                        });
+                        toast.success(`Återkommande "${l.name}" skapad — ${sek(totalMonthly)}/mån`);
+                      }}
+                    >
+                      <Repeat className="h-4 w-4" /> Lägg i budget
                     </Button>
                   </div>
                 </Card>
@@ -862,6 +891,10 @@ function PaymentDialog({
     if (!loan) return;
     const a = amount;
     if (!a || a <= 0) { toast.error("Ange ett belopp"); return; }
+    if (a > loan.currentBalance) {
+      toast.error(`Beloppet överstiger kvarvarande skuld (${sek(loan.currentBalance)})`);
+      return;
+    }
     onSave(loan.id, a, personId, true, note);
     onClose();
   };

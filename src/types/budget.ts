@@ -2,7 +2,7 @@ export type CategoryId =
   | "mat" | "boende" | "transport" | "noje"
   | "shopping" | "abonnemang" | "resor" | "ovrigt";
 
-export type TransactionType = "expense" | "income";
+export type TransactionType = "expense" | "income" | "settlement";
 
 export interface Category {
   id: string;
@@ -26,9 +26,10 @@ export interface Transaction {
   date: string; // ISO
   amount: number; // SEK, positive
   type: TransactionType;
-  categoryId: string;
+  categoryId?: string; // optional för settlement
   payerId: string; // person id
   description: string;
+  receiverId?: string; // för settlement: person som fick pengarna
   isRecurring?: boolean; // marker if user identifies as subscription
   isPrivate?: boolean;   // syns endast för ägaren, ingår inte i split
   ownerId?: string;      // user_id för ägaren (sätts på server för privata)
@@ -42,6 +43,7 @@ export interface SavingsGoal {
   saved: number;
   targetDate?: string;
   ownerId?: string | null; // null/undefined = gemensamt
+  monthlyContribution?: number; // auto-generera bidrag varje månad om > 0
   contributions: { id: string; date: string; amount: number; personId: string }[];
   snapshots: { id: string; date: string; balance: number; note: string }[];
 }
@@ -93,6 +95,7 @@ export interface Settings {
   householdName: string;
   splitMode: "50/50" | "income";
   theme: "light" | "dark" | "system";
+  payDay: number; // Dag lönen kommer (1–28). 1 = kalendermånad, 25 = 25:e → perioden är föregående 25:e till 24:e.
 }
 
 export type ImportRuleMatch = "contains" | "starts_with" | "exact" | "regex";

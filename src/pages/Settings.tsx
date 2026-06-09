@@ -43,6 +43,8 @@ const PERSON_COLORS = [
 
 export default function Settings() {
   const { state, dispatch } = useBudget();
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearInput, setClearInput] = useState("");
 
   return (
     <div className="space-y-6">
@@ -62,6 +64,31 @@ export default function Settings() {
             onChange={e => dispatch({ type: "UPDATE_SETTINGS", patch: { householdName: e.target.value } })}
             className="rounded-xl"
           />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="pay-day">Lönedag</Label>
+          <div className="flex items-center gap-3">
+            <Input
+              id="pay-day"
+              type="number"
+              min={1}
+              max={28}
+              value={state.settings.payDay ?? 1}
+              onChange={e => {
+                const v = Math.max(1, Math.min(28, parseInt(e.target.value) || 1));
+                dispatch({ type: "UPDATE_SETTINGS", patch: { payDay: v } });
+              }}
+              className="rounded-xl w-24"
+            />
+            <p className="text-sm text-muted-foreground">
+              {(state.settings.payDay ?? 1) <= 1
+                ? "Kalendermånad (1:a – sista)"
+                : `Löneperiod: ${state.settings.payDay}:e varje månad`}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Sätt till 25 om lönen kommer den 25:e — då räknas "månaden" från 25:e till 24:e.
+          </p>
         </div>
       </Card>
 
@@ -119,18 +146,38 @@ export default function Settings() {
         <h2 className="font-display font-semibold text-destructive">Farlig zon</h2>
         <p className="text-sm text-muted-foreground">Åtgärder som inte kan ångras och raderar data permanent.</p>
         <div className="flex gap-2 flex-wrap">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" className="rounded-xl">Rensa all data</Button>
-            </AlertDialogTrigger>
+          <Button variant="destructive" className="rounded-xl" onClick={() => { setClearInput(""); setClearOpen(true); }}>
+            Rensa all data
+          </Button>
+          <AlertDialog open={clearOpen} onOpenChange={v => { setClearOpen(v); if (!v) setClearInput(""); }}>
             <AlertDialogContent className="rounded-2xl">
               <AlertDialogHeader>
                 <AlertDialogTitle>Rensa alla transaktioner och mål?</AlertDialogTitle>
-                <AlertDialogDescription>Du börjar med ett tomt konto. Detta går inte att ångra.</AlertDialogDescription>
+                <AlertDialogDescription>
+                  Alla transaktioner, sparmål och lån tas bort permanent. Kategorier och inställningar behålls.
+                  Detta går inte att ångra.
+                </AlertDialogDescription>
               </AlertDialogHeader>
+              <div className="px-1 space-y-1.5">
+                <Label htmlFor="clear-confirm" className="text-sm">Skriv <span className="font-mono font-bold">RENSA</span> för att bekräfta</Label>
+                <Input
+                  id="clear-confirm"
+                  value={clearInput}
+                  onChange={e => setClearInput(e.target.value)}
+                  placeholder="RENSA"
+                  className="rounded-xl"
+                  autoComplete="off"
+                />
+              </div>
               <AlertDialogFooter>
                 <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                <AlertDialogAction onClick={() => { dispatch({ type: "CLEAR" }); toast.success("Data rensad"); }}>Rensa</AlertDialogAction>
+                <AlertDialogAction
+                  disabled={clearInput !== "RENSA"}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                  onClick={() => { dispatch({ type: "CLEAR" }); toast.success("Data rensad"); setClearOpen(false); }}
+                >
+                  Rensa all data
+                </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -144,6 +191,8 @@ function AccountSection() {
   const { user, signOut, householdId, refreshHousehold } = useAuth();
   const [leaving, setLeaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteEmailInput, setDeleteEmailInput] = useState("");
 
   const deleteAccount = async () => {
     if (!user) return;
@@ -216,12 +265,15 @@ function AccountSection() {
         </AlertDialog>
 
         {/* Radera konto */}
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="destructive" className="rounded-xl" disabled={deleting}>
-              <UserX className="h-4 w-4" /> {deleting ? "Raderar…" : "Radera mitt konto"}
-            </Button>
-          </AlertDialogTrigger>
+        <Button
+          variant="destructive"
+          className="rounded-xl"
+          disabled={deleting}
+          onClick={() => { setDeleteEmailInput(""); setDeleteOpen(true); }}
+        >
+          <UserX className="h-4 w-4" /> {deleting ? "Raderar…" : "Radera mitt konto"}
+        </Button>
+        <AlertDialog open={deleteOpen} onOpenChange={v => { setDeleteOpen(v); if (!v) setDeleteEmailInput(""); }}>
           <AlertDialogContent className="rounded-2xl">
             <AlertDialogHeader>
               <AlertDialogTitle>Radera konto permanent?</AlertDialogTitle>
@@ -231,12 +283,26 @@ function AccountSection() {
                 <span className="block font-medium text-destructive">Detta går inte att ångra.</span>
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <div className="px-1 space-y-1.5">
+              <Label htmlFor="delete-email-confirm" className="text-sm">
+                Bekräfta genom att skriva din e-postadress
+              </Label>
+              <Input
+                id="delete-email-confirm"
+                type="email"
+                value={deleteEmailInput}
+                onChange={e => setDeleteEmailInput(e.target.value)}
+                placeholder={user?.email ?? "din@email.se"}
+                className="rounded-xl"
+                autoComplete="off"
+              />
+            </div>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={deleting}>Avbryt</AlertDialogCancel>
               <AlertDialogAction
-                disabled={deleting}
+                disabled={deleting || deleteEmailInput !== user?.email}
                 onClick={deleteAccount}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
               >
                 {deleting ? "Raderar…" : "Ja, radera mitt konto"}
               </AlertDialogAction>

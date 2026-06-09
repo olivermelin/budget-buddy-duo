@@ -73,7 +73,7 @@ export function buildNotifications(state: AppState): AppNotification[] {
       title: `${newSubs.length} nya återkommande utgift${newSubs.length === 1 ? "" : "er"}`,
       description: `Vi hittade ${newSubs.length} mönster som ser ut som abonnemang. Skapa mallar för bättre planering.`,
       severity: "info",
-      href: "/statistik",
+      href: "/statistics",
       createdAt: today.toISOString(),
     });
   }
@@ -88,7 +88,7 @@ export function buildNotifications(state: AppState): AppNotification[] {
         title: `${loan.icon} ${loan.name} snart betalt`,
         description: `Bara ${Math.round(left * 100)}% kvar av ursprungsbeloppet.`,
         severity: "success",
-        href: "/lan",
+        href: "/loans",
         createdAt: today.toISOString(),
       });
     }
@@ -102,7 +102,7 @@ export function buildNotifications(state: AppState): AppNotification[] {
         title: `${goal.icon} Sparmål uppnått: ${goal.name}`,
         description: `Du har sparat ihop ${Math.round(goal.saved).toLocaleString("sv-SE")} kr. Grattis!`,
         severity: "success",
-        href: "/sparmal",
+        href: "/goals",
         createdAt: today.toISOString(),
       });
     }
