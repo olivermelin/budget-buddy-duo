@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { MonthPicker } from "@/components/MonthPicker";
 import { MortgageCalculator } from "@/components/MortgageCalculator";
+import { ExtraAmortizationSimulator } from "@/components/ExtraAmortizationSimulator";
 
 const LOAN_TYPE_LABEL: Record<LoanType, string> = {
   mortgage: "Bolån",
@@ -153,6 +154,7 @@ export default function Loans() {
         <TabsList className="rounded-xl">
           <TabsTrigger value="loans" className="rounded-lg">Mina lån</TabsTrigger>
           <TabsTrigger value="calculator" className="rounded-lg">🏠 Bostadskalkyl</TabsTrigger>
+          <TabsTrigger value="simulator" className="rounded-lg">📊 Amorteringssimulator</TabsTrigger>
         </TabsList>
 
         <TabsContent value="loans" className="space-y-6 mt-0">
@@ -438,6 +440,10 @@ export default function Loans() {
 
         <TabsContent value="calculator" className="mt-0">
           <MortgageCalculator />
+        </TabsContent>
+
+        <TabsContent value="simulator" className="mt-0">
+          <ExtraAmortizationSimulator loans={visibleLoans} />
         </TabsContent>
       </Tabs>
 
