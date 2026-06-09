@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
 import { lastNMonths, summarizeMonth, buildMonthPlan, inMonth } from "@/lib/analytics";
-import { sek, pct, monthLabel, dateLabel } from "@/lib/format";
+import { sek, pct, monthLabel, periodLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -23,6 +23,16 @@ export default function Dashboard() {
   const prev = useMemo(() => summarizeMonth(state, prevDate.getFullYear(), prevDate.getMonth()), [state]);
   const plan = useMemo(() => buildMonthPlan(state, today.getFullYear(), today.getMonth()), [state]);
 
+  // Om inga faktiska inkomsttransaktioner finns ännu denna månad (t.ex. lönen har inte kommit),
+  // använd summan av personernas registrerade månadslöner som förväntad inkomst.
+  const totalPersonIncome = useMemo(
+    () => state.persons.reduce((s, p) => s + p.income, 0),
+    [state.persons],
+  );
+  const usingExpectedIncome = cur.income === 0 && totalPersonIncome > 0;
+  const effectiveIncome = usingExpectedIncome ? totalPersonIncome : cur.income;
+  const effectiveRemaining = effectiveIncome - cur.expenses;
+
   const recent = useMemo(() => state.transactions.slice(0, 5), [state.transactions]);
   const catMap = useMemo(() => Object.fromEntries(state.categories.map(c => [c.id, c])), [state.categories]);
   const personMap = useMemo(() => Object.fromEntries(state.persons.map(p => [p.id, p])), [state.persons]);
@@ -35,7 +45,7 @@ export default function Dashboard() {
       fixedCatIds.has(t.categoryId) || !!t.isRecurring;
     return state.transactions.filter(t =>
       t.type === "expense" &&
-      inMonth(t.date, today.getFullYear(), today.getMonth()) &&
+      inMonth(t.date, today.getFullYear(), today.getMonth(), state.settings.payDay ?? 1) &&
       (breakdown === "fixed" ? isFixed(t) : !isFixed(t))
     ).sort((a, b) => b.date.localeCompare(a.date));
   }, [breakdown, state.transactions, today, fixedCatIds]);
@@ -84,7 +94,7 @@ export default function Dashboard() {
     <div className="space-y-6 md:space-y-8">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <p className="text-sm text-muted-foreground">{monthLabel(today)}</p>
+          <p className="text-sm text-muted-foreground">{periodLabel(today, state.settings.payDay ?? 1)}</p>
           <h1 className="text-3xl md:text-4xl font-display font-bold mt-1">Hej {state.persons[0]?.name ?? "där"} <span aria-hidden="true">👋</span></h1>
         </div>
         <Button onClick={() => setOpen(true)} className="hidden md:inline-flex bg-gradient-primary rounded-xl shadow-soft">
@@ -99,7 +109,7 @@ export default function Dashboard() {
         <div className="relative">
           <p className="text-sm uppercase tracking-wider opacity-80">Kvar att leva på</p>
           <div className="mt-3 flex items-baseline gap-3 flex-wrap">
-            <span className="text-5xl md:text-6xl font-display font-extrabold tracking-tight">{sek(cur.remaining)}</span>
+            <span className="text-5xl md:text-6xl font-display font-extrabold tracking-tight">{sek(effectiveRemaining)}</span>
             {prev.remaining !== 0 && (
               <span className={cn(
                 "inline-flex items-center gap-1 text-sm font-medium px-2.5 py-1 rounded-full",
@@ -111,14 +121,16 @@ export default function Dashboard() {
             )}
           </div>
           <p className="mt-3 text-sm opacity-80 max-w-md">
-            Av {sek(cur.income)} i inkomster har {sek(cur.expenses)} gått till utgifter.
+            {usingExpectedIncome
+              ? `Baserat på förväntad inkomst ${sek(effectiveIncome)} — lönen ej registrerad ännu.`
+              : `Av ${sek(cur.income)} i inkomster har ${sek(cur.expenses)} gått till utgifter.`}
           </p>
         </div>
       </Card>
 
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <Kpi icon={<ArrowDown className="h-4 w-4" />} label="Inkomster" value={sek(cur.income)} tone="success" />
+        <Kpi icon={<ArrowDown className="h-4 w-4" />} label={usingExpectedIncome ? "Inkomster (förväntad)" : "Inkomster"} value={sek(effectiveIncome)} tone="success" />
         <Kpi icon={<Home className="h-4 w-4" />} label="Fasta utgifter" value={sek(cur.fixed)} tone="muted" onClick={() => setBreakdown("fixed")} />
         <Kpi icon={<Receipt className="h-4 w-4" />} label="Rörliga utgifter" value={sek(cur.variable)} tone="muted" onClick={() => setBreakdown("variable")} />
         <Kpi icon={<PiggyBank className="h-4 w-4" />} label="Sparande" value={sek(cur.savings)} tone="primary" />
@@ -169,12 +181,12 @@ export default function Dashboard() {
       )}
 
       {/* Månadsplan */}
-      {plan.hasRecurring && (
+      {(plan.hasRecurring || plan.plannedLoans > 0 || plan.plannedSavings > 0) && (
         <Card className="p-5 md:p-6 rounded-2xl border-0 shadow-soft">
           <div className="flex items-center gap-2 mb-4">
             <CalendarCheck className="h-4 w-4 text-primary" />
             <h2 className="font-display font-semibold">Månadsplan</h2>
-            <span className="ml-auto text-xs text-muted-foreground capitalize">{monthLabel(today)}</span>
+            <span className="ml-auto text-xs text-muted-foreground capitalize">{periodLabel(today, state.settings.payDay ?? 1)}</span>
           </div>
 
           <div className="space-y-3">
@@ -188,13 +200,37 @@ export default function Dashboard() {
             </div>
 
             {/* Fasta utgifter */}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-muted-foreground inline-block" />
-                Fasta utgifter
-              </span>
-              <span className="font-medium tabular-nums">−{sek(plan.plannedFixed)}</span>
-            </div>
+            {plan.plannedFixed > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground inline-block" />
+                  Fasta utgifter
+                </span>
+                <span className="font-medium tabular-nums">−{sek(plan.plannedFixed)}</span>
+              </div>
+            )}
+
+            {/* Lånkostnader */}
+            {plan.plannedLoans > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-orange-400 inline-block" />
+                  Lånkostnader
+                </span>
+                <span className="font-medium tabular-nums">−{sek(plan.plannedLoans)}</span>
+              </div>
+            )}
+
+            {/* Månadssparande */}
+            {plan.plannedSavings > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-primary inline-block" />
+                  Månadssparande
+                </span>
+                <span className="font-medium tabular-nums">−{sek(plan.plannedSavings)}</span>
+              </div>
+            )}
 
             {/* Divider */}
             <div className="border-t border-dashed" />
@@ -292,7 +328,7 @@ export default function Dashboard() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display font-semibold">Senaste transaktioner</h2>
-          <Link to="/transaktioner" className="text-sm text-primary hover:underline" aria-label="Visa alla transaktioner">Visa alla <span aria-hidden="true">→</span></Link>
+          <Link to="/transactions" className="text-sm text-primary hover:underline" aria-label="Visa alla transaktioner">Visa alla <span aria-hidden="true">→</span></Link>
         </div>
         <Card className="rounded-2xl shadow-soft overflow-hidden divide-y divide-border">
           {recent.length === 0 && <div className="p-6 text-sm text-muted-foreground">Inga transaktioner än.</div>}
@@ -332,7 +368,7 @@ export default function Dashboard() {
         <DialogContent className="sm:max-w-lg rounded-2xl">
           <DialogHeader>
             <DialogTitle className="font-display text-xl">
-              {breakdown === "fixed" ? "Fasta utgifter" : "Rörliga utgifter"} — {monthLabel(today)}
+              {breakdown === "fixed" ? "Fasta utgifter" : "Rörliga utgifter"} — {periodLabel(today, state.settings.payDay ?? 1)}
             </DialogTitle>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto -mx-6 px-6">

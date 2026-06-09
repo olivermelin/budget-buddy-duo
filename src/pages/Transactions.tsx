@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil, X, Tag, UserCog, Lock } from "lucide-react";
+import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil, X, Tag, UserCog, Lock, ArrowRightLeft } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { exportTransactionsPDF, exportTransactionsXLSX } from "@/lib/export";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,7 @@ export default function Transactions() {
   const [person, setPerson] = useState<string>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const months = useMemo(() => {
     const set = new Set<string>();
@@ -45,7 +46,10 @@ export default function Transactions() {
   const catMap = Object.fromEntries(state.categories.map(c => [c.id, c]));
   const personMap = Object.fromEntries(state.persons.map(p => [p.id, p]));
 
-  const total = filtered.reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
+  const total = filtered.reduce((s, t) => {
+    if (t.type === "settlement") return s;
+    return s + (t.type === "income" ? t.amount : -t.amount);
+  }, 0);
 
   const visibleIds = useMemo(() => filtered.map(t => t.id), [filtered]);
   const allSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
@@ -162,9 +166,11 @@ export default function Transactions() {
       <Card className="rounded-2xl shadow-soft border-0 overflow-hidden divide-y divide-border">
         {filtered.length === 0 && <div className="p-10 text-center text-sm text-muted-foreground">Inga transaktioner matchar filtren.</div>}
         {filtered.map(t => {
-          const c = catMap[t.categoryId];
+          const c = catMap[t.categoryId ?? ""];
           const p = personMap[t.payerId];
+          const receiver = t.type === "settlement" ? personMap[t.receiverId ?? ""] : undefined;
           const isSel = selected.has(t.id);
+          const isSettlement = t.type === "settlement";
           return (
             <div key={t.id} className={cn("flex items-center gap-3 p-4 hover:bg-muted/30 group transition", isSel && "bg-primary/5")}>
               <Checkbox
@@ -178,10 +184,14 @@ export default function Transactions() {
                 className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 aria-label={`Redigera ${t.description}`}
               >
-                <div
-                  className="h-10 w-10 rounded-xl flex items-center justify-center text-lg shrink-0"
-                  style={{ backgroundColor: `hsl(${c?.color} / 0.15)` }}
-                >{c?.icon}</div>
+                <div className={cn(
+                  "h-10 w-10 rounded-xl flex items-center justify-center text-lg shrink-0",
+                  isSettlement ? "bg-muted" : undefined
+                )} style={!isSettlement ? { backgroundColor: `hsl(${c?.color} / 0.15)` } : undefined}>
+                  {isSettlement
+                    ? <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
+                    : c?.icon}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate flex items-center gap-1.5">
                     {t.isPrivate && (
@@ -189,14 +199,17 @@ export default function Transactions() {
                     )}
                     <span className="truncate">{t.description}</span>
                   </div>
-                  <div className="text-xs text-muted-foreground">{dateLabel(t.date)} · {p?.name} · {c?.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {dateLabel(t.date)} · {p?.name}
+                    {isSettlement && receiver ? ` → ${receiver.name}` : ` · ${c?.name ?? ""}`}
+                  </div>
                 </div>
               </button>
               <div className={cn(
                 "font-display font-bold tabular-nums",
-                t.type === "income" ? "text-success" : "text-foreground"
+                t.type === "income" ? "text-success" : t.type === "settlement" ? "text-muted-foreground" : "text-foreground"
               )}>
-                {t.type === "income" ? "+" : "−"}{sek(t.amount)}
+                {t.type === "income" ? "+" : t.type === "settlement" ? "" : "−"}{sek(t.amount)}
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition">
                 <Button
@@ -210,7 +223,7 @@ export default function Transactions() {
                 <Button
                   variant="ghost" size="icon"
                   className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  onClick={() => { dispatch({ type: "DELETE_TX", id: t.id }); toast.success("Borttagen"); }}
+                  onClick={() => setPendingDeleteId(t.id)}
                   aria-label={`Ta bort ${t.description}`}
                 >
                   <Trash2 className="h-4 w-4" />
@@ -265,6 +278,31 @@ export default function Transactions() {
           </div>
         </div>
       )}
+
+      <AlertDialog open={!!pendingDeleteId} onOpenChange={v => !v && setPendingDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ta bort transaktion?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {state.transactions.find(t => t.id === pendingDeleteId)?.description ?? "Transaktionen"} tas bort permanent och kan inte återställas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Avbryt</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!pendingDeleteId) return;
+                dispatch({ type: "DELETE_TX", id: pendingDeleteId });
+                toast.success("Transaktion borttagen");
+                setPendingDeleteId(null);
+              }}
+            >
+              Ta bort
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>

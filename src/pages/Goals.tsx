@@ -260,12 +260,13 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const [icon, setIcon] = useState("🎯");
   const [date, setDate] = useState("");
   const [ownerId, setOwnerId] = useState<string | null>(null); // null = gemensamt
+  const [monthlyContribution, setMonthlyContribution] = useState(0);
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       setName(""); setTarget(0); setDate(""); setIcon("🎯");
-      setOwnerId(null);
+      setOwnerId(null); setMonthlyContribution(0);
     }
   }, [open]);
 
@@ -279,6 +280,7 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
         name: name.trim(), icon, target: t, saved: 0,
         targetDate: date ? new Date(date).toISOString() : undefined,
         ownerId,
+        monthlyContribution: monthlyContribution > 0 ? monthlyContribution : undefined,
         contributions: [],
         snapshots: [],
       },
@@ -302,6 +304,11 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           </div>
           <div className="space-y-2"><Label>Namn</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="T.ex. Resa till Italien" className="rounded-xl" /></div>
           <div className="space-y-2"><Label>Målsumma (SEK)</Label><NumericInput value={target} onChange={setTarget} placeholder="50 000" className="rounded-xl" /></div>
+          <div className="space-y-2">
+            <Label>Månadssparande (SEK)</Label>
+            <NumericInput value={monthlyContribution} onChange={setMonthlyContribution} placeholder="0 = manuellt" className="rounded-xl" />
+            <p className="text-xs text-muted-foreground">Läggs automatiskt till sparmålet varje månad.</p>
+          </div>
           <div className="space-y-2"><Label>Måldatum (valfritt)</Label><DatePicker value={date} onChange={setDate} placeholder="Välj måldatum" className="rounded-xl" /></div>
 
           {/* Owner selector */}
@@ -570,7 +577,7 @@ function SnapshotDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: 
                         toast.success("Snapshot borttagen");
                       }}
                       aria-label="Ta bort snapshot"
-                      className="text-muted-foreground hover:text-destructive shrink-0"
+                      className="text-muted-foreground hover:text-destructive shrink-0 p-2 -m-2 rounded"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>

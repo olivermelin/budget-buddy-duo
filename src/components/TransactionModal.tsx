@@ -20,28 +20,54 @@ interface Props {
   onOpenChange: (v: boolean) => void;
   defaultCategoryId?: string;
   transaction?: Transaction | null;
+  settlementMode?: {
+    from: string; // personId
+    to: string;   // personId
+    amount: number;
+  };
 }
 
-export function TransactionModal({ open, onOpenChange, defaultCategoryId, transaction }: Props) {
+export function TransactionModal({ open, onOpenChange, defaultCategoryId, transaction, settlementMode }: Props) {
   const { state, dispatch } = useBudget();
   const { user } = useAuth();
   const isEdit = !!transaction;
-  const [type, setType] = useState<"expense" | "income">("expense");
+  const isSettlement = !!settlementMode || transaction?.type === "settlement";
+  const [type, setType] = useState<"expense" | "income" | "settlement">("expense");
   const [amount, setAmount] = useState(0);
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [categoryId, setCategoryId] = useState(defaultCategoryId ?? state.categories[0]?.id);
   const [payerId, setPayerId] = useState(state.persons[0]?.id ?? "");
+  const [receiverId, setReceiverId] = useState<string>("");
   const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
 
   useEffect(() => {
     if (open) {
-      if (transaction) {
-        setType(transaction.type);
+      if (isSettlement && settlementMode) {
+        setType("settlement");
+        setAmount(settlementMode.amount);
+        setDate(new Date().toISOString().split("T")[0]);
+        setPayerId(settlementMode.from);
+        setReceiverId(settlementMode.to);
+        setDescription("");
+        setCategoryId("");
+        setIsPrivate(false);
+      } else if (transaction?.type === "settlement") {
+        setType("settlement");
         setAmount(transaction.amount);
         setDate(transaction.date.split("T")[0]);
-        setCategoryId(transaction.categoryId);
         setPayerId(transaction.payerId);
+        setReceiverId(transaction.receiverId ?? "");
+        setDescription("");
+        setCategoryId("");
+        setIsPrivate(false);
+      } else if (transaction) {
+        setType(transaction.type as any);
+        setAmount(transaction.amount);
+        setDate(transaction.date.split("T")[0]);
+        setCategoryId(transaction.categoryId ?? "");
+        setPayerId(transaction.payerId);
+        setReceiverId(transaction.receiverId ?? "");
         setDescription(transaction.description);
         setIsPrivate(!!transaction.isPrivate);
       } else {
@@ -50,11 +76,12 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
         setDate(new Date().toISOString().split("T")[0]);
         setCategoryId(defaultCategoryId ?? state.categories[0]?.id);
         setPayerId(user?.id ?? state.persons[0]?.id ?? "");
+        setReceiverId("");
         setDescription("");
         setIsPrivate(false);
       }
     }
-  }, [open, defaultCategoryId, state.categories, state.persons, transaction, user?.id]);
+  }, [open, defaultCategoryId, state.categories, state.persons, transaction, user?.id, isSettlement, settlementMode]);
 
   // En transaktion kan endast vara privat för den inloggade användaren — du kan inte
   // sätta privat på sambons betalningar.
@@ -64,40 +91,63 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
   const submit = () => {
     const num = amount;
     if (!num || num <= 0) { toast.error("Ange ett belopp"); return; }
-    if (!description.trim()) { toast.error("Lägg till beskrivning"); return; }
-    const isoDate = `${date}T12:00:00.000Z`;
-    if (transaction) {
-      dispatch({
-        type: "UPDATE_TX",
-        id: transaction.id,
-        patch: {
-          date: isoDate,
-          amount: num,
-          type,
-          categoryId,
-          payerId,
-          description: description.trim(),
-          isPrivate: effectivePrivate,
-          // Synka ownerId: sätt vid privatisering, rensa vid avprivatisering
-          ownerId: effectivePrivate ? user?.id : undefined,
-        },
-      });
-      toast.success("Transaktion uppdaterad");
+    
+    if (type === "settlement") {
+      if (!payerId || !receiverId) { toast.error("Välj avsändare och mottagare"); return; }
+      if (payerId === receiverId) { toast.error("Avsändare och mottagare måste vara olika"); return; }
+      const householdIds = new Set(state.persons.map(p => p.id));
+      if (!householdIds.has(receiverId)) { toast.error("Mottagaren tillhör inte hushållet"); return; }
+      const isoDate = `${date}T12:00:00.000Z`;
+      const desc = `${state.persons.find(p => p.id === payerId)?.name ?? "Okänd"} betalade ${state.persons.find(p => p.id === receiverId)?.name ?? "Okänd"}`;
+      if (transaction) {
+        dispatch({
+          type: "UPDATE_TX",
+          id: transaction.id,
+          patch: { date: isoDate, amount: num, type: "settlement", payerId, receiverId, description: desc },
+        });
+        toast.success("Betalning uppdaterad");
+      } else {
+        dispatch({
+          type: "ADD_TX",
+          tx: { date: isoDate, amount: num, type: "settlement", payerId, receiverId, description: desc },
+        });
+        toast.success("Betalning sparad");
+      }
     } else {
-      dispatch({
-        type: "ADD_TX",
-        tx: {
-          date: isoDate,
-          amount: num,
-          type,
-          categoryId,
-          payerId,
-          description: description.trim(),
-          isPrivate: effectivePrivate,
-          ownerId: effectivePrivate ? user?.id : undefined,
-        },
-      });
-      toast.success(type === "expense" ? "Utgift sparad" : "Inkomst sparad");
+      if (!description.trim()) { toast.error("Lägg till beskrivning"); return; }
+      const isoDate = `${date}T12:00:00.000Z`;
+      if (transaction) {
+        dispatch({
+          type: "UPDATE_TX",
+          id: transaction.id,
+          patch: {
+            date: isoDate,
+            amount: num,
+            type: type as "expense" | "income",
+            categoryId,
+            payerId,
+            description: description.trim(),
+            isPrivate: effectivePrivate,
+            ownerId: effectivePrivate ? user?.id : undefined,
+          },
+        });
+        toast.success("Transaktion uppdaterad");
+      } else {
+        dispatch({
+          type: "ADD_TX",
+          tx: {
+            date: isoDate,
+            amount: num,
+            type: type as "expense" | "income",
+            categoryId,
+            payerId,
+            description: description.trim(),
+            isPrivate: effectivePrivate,
+            ownerId: effectivePrivate ? user?.id : undefined,
+          },
+        });
+        toast.success(type === "expense" ? "Utgift sparad" : "Inkomst sparad");
+      }
     }
     onOpenChange(false);
   };
@@ -106,22 +156,26 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="font-display text-xl">{isEdit ? "Redigera transaktion" : "Ny transaktion"}</DialogTitle>
+          <DialogTitle className="font-display text-xl">
+            {isSettlement ? "Registrera betalning" : isEdit ? "Redigera transaktion" : "Ny transaktion"}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div role="group" aria-label="Transaktionstyp" className="grid grid-cols-2 gap-2 p-1 bg-muted rounded-xl">
-            <button
-              onClick={() => setType("expense")}
-              aria-pressed={type === "expense"}
-              className={cn("py-2 rounded-lg text-sm font-medium transition", type === "expense" ? "bg-card shadow-soft" : "text-muted-foreground")}
-            >Utgift</button>
-            <button
-              onClick={() => setType("income")}
-              aria-pressed={type === "income"}
-              className={cn("py-2 rounded-lg text-sm font-medium transition", type === "income" ? "bg-card shadow-soft" : "text-muted-foreground")}
-            >Inkomst</button>
-          </div>
+          {!isSettlement && (
+            <div role="group" aria-label="Transaktionstyp" className="grid grid-cols-2 gap-2 p-1 bg-muted rounded-xl">
+              <button
+                onClick={() => setType("expense")}
+                aria-pressed={type === "expense"}
+                className={cn("py-2 rounded-lg text-sm font-medium transition", type === "expense" ? "bg-card shadow-soft" : "text-muted-foreground")}
+              >Utgift</button>
+              <button
+                onClick={() => setType("income")}
+                aria-pressed={type === "income"}
+                className={cn("py-2 rounded-lg text-sm font-medium transition", type === "income" ? "bg-card shadow-soft" : "text-muted-foreground")}
+              >Inkomst</button>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="tx-amount">Belopp (SEK)</Label>
@@ -141,7 +195,7 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
               <DatePicker value={date} onChange={setDate} className="rounded-xl" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tx-payer">{type === "expense" ? "Betalare" : "Mottagare"}</Label>
+              <Label htmlFor="tx-payer">{isSettlement || type === "expense" ? "Betalare" : "Mottagare"}</Label>
               <Select value={payerId} onValueChange={setPayerId}>
                 <SelectTrigger id="tx-payer" className="rounded-xl"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -154,32 +208,45 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tx-category">Kategori</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger id="tx-category" className="rounded-xl"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {state.categories.map(c => (
-                  <SelectItem key={c.id} value={c.id}>
-                    <span className="mr-2">{c.icon}</span>{c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="tx-category">{isSettlement ? "Mottagare" : "Kategori"}</Label>
+            {isSettlement ? (
+              <Select value={receiverId} onValueChange={setReceiverId}>
+                <SelectTrigger id="tx-category" className="rounded-xl"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {state.persons.filter(p => p.id !== payerId).map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select value={categoryId} onValueChange={setCategoryId}>
+                <SelectTrigger id="tx-category" className="rounded-xl"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {state.categories.map(c => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <span className="mr-2">{c.icon}</span>{c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="tx-description">Beskrivning</Label>
-            <Textarea
-              id="tx-description"
-              rows={2}
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="T.ex. ICA Maxi"
-              className="rounded-xl resize-none"
-            />
-          </div>
+          {!isSettlement && (
+            <div className="space-y-2">
+              <Label htmlFor="tx-description">Beskrivning</Label>
+              <Textarea
+                id="tx-description"
+                rows={2}
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="T.ex. ICA Maxi"
+                className="rounded-xl resize-none"
+              />
+            </div>
+          )}
 
-          {canBePrivate && (
+          {!isSettlement && canBePrivate && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-muted/40">
               <Switch
                 id="tx-private"

@@ -76,7 +76,7 @@ export default function Login() {
             <p className="text-center text-xs text-muted-foreground">
               Genom att logga in godkänner du våra{" "}
               <a href="/villkor" className="underline hover:text-foreground transition-colors">villkor</a> och{" "}
-              <a href="/integritetspolicy" className="underline hover:text-foreground transition-colors">integritetspolicy</a>.
+              <a href="/privacy-policy" className="underline hover:text-foreground transition-colors">integritetspolicy</a>.
             </p>
           </div>
 

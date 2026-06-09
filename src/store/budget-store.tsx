@@ -12,17 +12,27 @@ const STORAGE_KEY = "budgetbuddy.v1";
 // ─── Supabase data loading ────────────────────────────────────────────────────
 
 async function loadHouseholdData(householdId: string): Promise<AppState> {
-  const [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes] = await Promise.all([
-    supabase.from("households").select("*").eq("id", householdId).single(),
-    supabase.from("household_members").select("*").eq("household_id", householdId),
-    supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order"),
-    supabase.from("transactions").select("*").eq("household_id", householdId).order("date", { ascending: false }),
-    supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId),
-    supabase.from("subscription_overrides").select("*").eq("household_id", householdId),
-    supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId),
-    supabase.from("recurring_transactions").select("*").eq("household_id", householdId),
-    supabase.from("import_rules").select("*").eq("household_id", householdId).order("priority", { ascending: false }),
-  ]);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(new Error("Laddning tog för lång tid — kontrollera din anslutning")), 15_000);
+
+  const query = <T>(q: { abortSignal: (s: AbortSignal) => Promise<T> }) => q.abortSignal(controller.signal);
+
+  let hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes;
+  try {
+    [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes] = await Promise.all([
+      query(supabase.from("households").select("*").eq("id", householdId).single()),
+      query(supabase.from("household_members").select("*").eq("household_id", householdId)),
+      query(supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order")),
+      query(supabase.from("transactions").select("*").eq("household_id", householdId).order("date", { ascending: false })),
+      query(supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId)),
+      query(supabase.from("subscription_overrides").select("*").eq("household_id", householdId)),
+      query(supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId)),
+      query(supabase.from("recurring_transactions").select("*").eq("household_id", householdId)),
+      query(supabase.from("import_rules").select("*").eq("household_id", householdId).order("priority", { ascending: false })),
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const members = (mRes.data ?? []) as Record<string, unknown>[];
   const cats = (catRes.data ?? []) as Record<string, unknown>[];
@@ -60,6 +70,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     categoryId: (t.category_id ?? "") as string,
     payerId: (t.payer_user_id ?? "") as string,
     description: (t.description ?? "") as string,
+    receiverId: (t.settlement_receiver_user_id ?? undefined) as string | undefined,
     isRecurring: (t.is_recurring ?? false) as boolean,
     isPrivate: (t.is_private ?? false) as boolean,
     ownerId: (t.owner_user_id ?? undefined) as string | undefined,
@@ -73,6 +84,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     saved: g.saved as number,
     targetDate: (g.target_date ?? undefined) as string | undefined,
     ownerId: (g.owner_id ?? null) as string | null,
+    monthlyContribution: (g.monthly_contribution ?? 0) as number,
     contributions: ((g.savings_contributions ?? []) as Record<string, unknown>[]).map((c) => ({
       id: c.id as string,
       date: c.date as string,
@@ -155,6 +167,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     settings: {
       householdName: ((hRes.data as Record<string, unknown> | null)?.name ?? "Mitt hushåll") as string,
       splitMode: (((hRes.data as Record<string, unknown> | null)?.split_mode ?? "50/50") as "50/50" | "income"),
+      payDay: (((hRes.data as Record<string, unknown> | null)?.pay_day ?? 1) as number),
       theme,
     },
     persons,
@@ -183,6 +196,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         category_id: tx.categoryId || null,
         payer_user_id: tx.payerId || userId,
         description: tx.description,
+        settlement_receiver_user_id: tx.receiverId || null,
         is_recurring: tx.isRecurring ?? false,
         is_private: tx.isPrivate ?? false,
         owner_user_id: tx.ownerId ?? userId,
@@ -197,6 +211,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       if (action.patch.categoryId !== undefined) patch.category_id = action.patch.categoryId;
       if (action.patch.payerId !== undefined) patch.payer_user_id = action.patch.payerId;
       if (action.patch.description !== undefined) patch.description = action.patch.description;
+      if (action.patch.receiverId !== undefined) patch.settlement_receiver_user_id = action.patch.receiverId || null;
       if (action.patch.isRecurring !== undefined) patch.is_recurring = action.patch.isRecurring;
       if (action.patch.isPrivate !== undefined) {
         patch.is_private = action.patch.isPrivate;
@@ -243,6 +258,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         saved: action.goal.saved,
         target_date: action.goal.targetDate ?? null,
         owner_id: action.goal.ownerId ?? null,
+        monthly_contribution: action.goal.monthlyContribution ?? 0,
       });
       return;
     case "DELETE_GOAL":
@@ -273,6 +289,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       const patch: Record<string, unknown> = {};
       if (action.patch.householdName !== undefined) patch.name = action.patch.householdName;
       if (action.patch.splitMode !== undefined) patch.split_mode = action.patch.splitMode;
+      if (action.patch.payDay !== undefined) patch.pay_day = action.patch.payDay;
       if (Object.keys(patch).length > 0) {
         await supabase.from("households").update(patch).eq("id", householdId);
       }
@@ -414,7 +431,7 @@ function monthsToGenerate(rt: RecurringTransaction, today: Date): string[] {
 // ─── Empty state (before Supabase loads) ─────────────────────────────────────
 
 const emptyState: AppState = {
-  settings: { householdName: "", splitMode: "50/50", theme: "system" },
+  settings: { householdName: "", splitMode: "50/50", theme: "system", payDay: 1 },
   persons: [],
   categories: [],
   transactions: [],
@@ -474,6 +491,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!householdId) return;
+    let offlineToastId: string | number | undefined;
     const channel = supabase
       .channel(`hh-${householdId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "transactions",      filter: `household_id=eq.${householdId}` }, reload)
@@ -483,16 +501,33 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "loans",                   filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "recurring_transactions",  filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "import_rules",             filter: `household_id=eq.${householdId}` }, reload)
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          offlineToastId = toast.warning("Realtidsuppdateringar pausade", {
+            description: "Anslutningen till servern avbröts. Data kanske inte uppdateras automatiskt.",
+            duration: Infinity,
+            id: "realtime-offline",
+          });
+        } else if (status === "SUBSCRIBED" && offlineToastId !== undefined) {
+          toast.dismiss("realtime-offline");
+          toast.success("Uppkopplad igen");
+          offlineToastId = undefined;
+          reload();
+        }
+      });
     return () => { supabase.removeChannel(channel); };
   }, [householdId, reload]);
 
-  // Auto-generate recurring transactions on load
+  // Auto-generate recurring transactions on load.
+  // Guard prevents concurrent runs if the effect fires multiple times before completion.
+  const generatingRef = useRef(false);
   useEffect(() => {
     if (storeLoading) return;
+    if (generatingRef.current) return;
+    generatingRef.current = true;
+
     const today = new Date();
     const active = state.recurringTransactions.filter(r => r.isActive);
-    if (active.length === 0) return;
 
     for (const rt of active) {
       const dates = monthsToGenerate(rt, today);
@@ -518,6 +553,20 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       const latestMonth = dates[dates.length - 1].slice(0, 7); // "YYYY-MM"
       dispatch({ type: "MARK_RECURRING_GENERATED", id: rt.id, month: latestMonth });
     }
+
+    // Auto-generera månadsbidrag för sparmål med monthlyContribution
+    const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+    for (const goal of state.goals) {
+      const contrib = goal.monthlyContribution ?? 0;
+      if (contrib <= 0) continue;
+      const alreadyDone = goal.contributions.some(c => c.date.slice(0, 7) === currentMonthKey);
+      if (alreadyDone) continue;
+      const primaryPerson = state.persons[0];
+      if (!primaryPerson) continue;
+      dispatch({ type: "ADD_GOAL_CONTRIB", goalId: goal.id, amount: contrib, personId: primaryPerson.id });
+    }
+
+    generatingRef.current = false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeLoading]);
 
@@ -589,8 +638,15 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       writeToSupabase(processed, hid, uid).catch((err) => {
         console.error("[BudgetStore] Supabase write failed:", err);
         Sentry.captureException(err);
+        const isOffline = !navigator.onLine;
+        const isTimeout = err instanceof Error && err.name === "AbortError";
+        const description = isOffline
+          ? "Du verkar vara offline. Kontrollera din anslutning och försök igen."
+          : isTimeout
+          ? "Servern svarar inte. Försök igen om en stund."
+          : "Ett oväntat fel uppstod. Försök igen.";
         toast.error("Ändringen kunde inte sparas", {
-          description: "Kontrollera din uppkoppling och försök igen.",
+          description,
           action: { label: "Försök igen", onClick: () => dispatch(processed) },
         });
         reload();
