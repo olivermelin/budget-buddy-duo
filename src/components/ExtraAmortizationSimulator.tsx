@@ -208,6 +208,10 @@ export function ExtraAmortizationSimulator({ loans }: Props) {
   const currentMonthlyCost = currentMonthlyInterest + baseAmort;
   const newMonthlyCost = currentMonthlyInterest + baseAmort + extraMonthly;
 
+  // Negativ amortering: ränta överstiger amorteringen — simulationen underskattar kostnad
+  const monthlyInterestGrossRaw = balance * (annualRate / 100 / 12);
+  const negativeAmortization = baseAmort > 0 && monthlyInterestGrossRaw > baseAmort;
+
   // Välj snygga milstolpar för räntetabellen: år 0, 5, 10, 15, 20 (om de finns)
   const interestMilestones = useMemo(() => {
     const steps = [0, 5, 10, 15, 20, 25, 30];
@@ -278,6 +282,18 @@ export function ExtraAmortizationSimulator({ loans }: Props) {
           </div>
         ) : null}
       </Card>
+
+      {/* Varning: ränta > amortering */}
+      {negativeAmortization && (
+        <div className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 flex items-start gap-3 text-sm">
+          <Info className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+          <p className="text-warning-foreground">
+            <span className="font-semibold">OBS:</span> Månadsräntan ({sek(Math.round(monthlyInterestGrossRaw))}) överstiger
+            amorteringen ({sek(baseAmort)}). I verkligheten växer skulden om du inte höjer betalningen.
+            Simulationen visar en förenklad bild — kontrollera din faktiska låneplan.
+          </p>
+        </div>
+      )}
 
       {/* Simulatorkontroller */}
       <Card className="p-5 rounded-2xl border-0 shadow-soft space-y-6">
@@ -620,14 +636,14 @@ export function ExtraAmortizationSimulator({ loans }: Props) {
 
           {/* Milstolpstabell — ränta per år */}
           {interestMilestones.length > 0 && (
-            <div className="mt-4 overflow-x-auto">
+            <div className="mt-4 overflow-x-auto rounded-xl border border-border">
               <table className="w-full text-xs">
-                <thead>
+                <thead className="bg-muted/40">
                   <tr className="border-b border-border text-muted-foreground">
-                    <th className="text-left pb-2 font-medium">År</th>
-                    <th className="text-right pb-2 font-medium">Ränta/mån (nuläge)</th>
-                    <th className="text-right pb-2 font-medium">Ränta/mån (med extra)</th>
-                    <th className="text-right pb-2 font-medium">Skillnad</th>
+                    <th className="text-left p-3 font-medium">År</th>
+                    <th className="text-right p-3 font-medium">Ränta/mån (nuläge)</th>
+                    <th className="text-right p-3 font-medium">Ränta/mån (med extra)</th>
+                    <th className="text-right p-3 font-medium">Skillnad</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
@@ -635,14 +651,14 @@ export function ExtraAmortizationSimulator({ loans }: Props) {
                     const diff = (p.baselineInterest ?? 0) - (p.extraInterest ?? 0);
                     return (
                       <tr key={p.year}>
-                        <td className="py-2 text-muted-foreground">År {p.year}</td>
-                        <td className="py-2 text-right tabular-nums">
+                        <td className="py-2 px-3 text-muted-foreground">År {p.year}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">
                           {p.baselineInterest != null ? sek(p.baselineInterest) : "—"}
                         </td>
-                        <td className="py-2 text-right tabular-nums text-primary">
+                        <td className="py-2 px-3 text-right tabular-nums text-primary">
                           {p.extraInterest != null ? sek(p.extraInterest) : <span className="text-success font-medium">Skuldfri ✓</span>}
                         </td>
-                        <td className={cn("py-2 text-right tabular-nums font-medium", diff > 0 ? "text-success" : "text-muted-foreground")}>
+                        <td className={cn("py-2 px-3 text-right tabular-nums font-medium", diff > 0 ? "text-success" : "text-muted-foreground")}>
                           {diff > 0 ? `-${sek(diff)}` : "—"}
                         </td>
                       </tr>
@@ -659,46 +675,46 @@ export function ExtraAmortizationSimulator({ loans }: Props) {
       {sim.baselineMonths != null && (
         <Card className="p-5 rounded-2xl border-0 shadow-soft">
           <h2 className="font-display font-semibold text-base mb-4">Detaljerad jämförelse</h2>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="bg-muted/40">
                 <tr className="border-b border-border text-xs text-muted-foreground">
-                  <th className="text-left pb-2 font-medium">Scenario</th>
-                  <th className="text-right pb-2 font-medium">Skuldfri</th>
-                  <th className="text-right pb-2 font-medium">Tid kvar</th>
-                  <th className="text-right pb-2 font-medium">Total ränta</th>
+                  <th className="text-left p-3 font-medium">Scenario</th>
+                  <th className="text-right p-3 font-medium">Skuldfri</th>
+                  <th className="text-right p-3 font-medium">Tid kvar</th>
+                  <th className="text-right p-3 font-medium">Total ränta</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
                 <tr className="text-muted-foreground">
-                  <td className="py-2.5 pr-4">Nuvarande plan ({sek(baseAmort)}/mån)</td>
-                  <td className="py-2.5 text-right tabular-nums">{monthsToLabel(sim.baselineMonths)}</td>
-                  <td className="py-2.5 text-right tabular-nums">
+                  <td className="py-2.5 px-3">Nuvarande plan ({sek(baseAmort)}/mån)</td>
+                  <td className="py-2.5 px-3 text-right tabular-nums">{monthsToLabel(sim.baselineMonths)}</td>
+                  <td className="py-2.5 px-3 text-right tabular-nums">
                     {sim.baselineMonths != null
                       ? `${Math.floor(sim.baselineMonths / 12)} år ${sim.baselineMonths % 12} mån`
                       : "—"}
                   </td>
-                  <td className="py-2.5 text-right tabular-nums">{sek(Math.round(sim.baselineInterest))}</td>
+                  <td className="py-2.5 px-3 text-right tabular-nums">{sek(Math.round(sim.baselineInterest))}</td>
                 </tr>
                 <tr className="font-medium text-foreground">
-                  <td className="py-2.5 pr-4">
+                  <td className="py-2.5 px-3">
                     <span className="text-primary">✓</span> Med extra ({sek(baseAmort + extraMonthly)}/mån
                     {lumpSum > 0 && ` + ${sek(lumpSum)} nu`})
                   </td>
-                  <td className="py-2.5 text-right tabular-nums text-primary">{monthsToLabel(sim.extraMonths)}</td>
-                  <td className="py-2.5 text-right tabular-nums">
+                  <td className="py-2.5 px-3 text-right tabular-nums text-primary">{monthsToLabel(sim.extraMonths)}</td>
+                  <td className="py-2.5 px-3 text-right tabular-nums">
                     {sim.extraMonths != null
                       ? `${Math.floor(sim.extraMonths / 12)} år ${sim.extraMonths % 12} mån`
                       : "—"}
                   </td>
-                  <td className="py-2.5 text-right tabular-nums">{sek(Math.round(sim.extraInterest))}</td>
+                  <td className="py-2.5 px-3 text-right tabular-nums">{sek(Math.round(sim.extraInterest))}</td>
                 </tr>
                 {interestSaving > 0 && (
                   <tr className="text-success font-semibold bg-success/5">
-                    <td className="py-2.5 pr-4 rounded-bl-lg">Besparing</td>
-                    <td className="py-2.5 text-right" />
-                    <td className="py-2.5 text-right tabular-nums">{monthDiff(sim.baselineMonths, sim.extraMonths)} kortare</td>
-                    <td className="py-2.5 text-right tabular-nums rounded-br-lg">{sek(Math.round(interestSaving))}</td>
+                    <td className="py-2.5 px-3 rounded-bl-lg">Besparing</td>
+                    <td className="py-2.5 px-3 text-right" />
+                    <td className="py-2.5 px-3 text-right tabular-nums">{monthDiff(sim.baselineMonths, sim.extraMonths)} kortare</td>
+                    <td className="py-2.5 px-3 text-right tabular-nums rounded-br-lg">{sek(Math.round(interestSaving))}</td>
                   </tr>
                 )}
               </tbody>

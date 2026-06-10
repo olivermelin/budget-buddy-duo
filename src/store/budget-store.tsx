@@ -15,7 +15,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(new Error("Laddning tog för lång tid — kontrollera din anslutning")), 15_000);
 
-  const query = <T>(q: { abortSignal: (s: AbortSignal) => Promise<T> }) => q.abortSignal(controller.signal);
+  const query = <T,>(q: { abortSignal: (s: AbortSignal) => Promise<T> }) => q.abortSignal(controller.signal);
 
   let hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes;
   try {
@@ -128,6 +128,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     ownerId: (l.owner_user_id ?? null) as string | null,
     ownerShare: Number(l.owner_share ?? 100),
     icon: (l.icon ?? "💰") as string,
+    lastGeneratedMonth: (l.last_generated_month ?? null) as string | null,
     payments: ((l.loan_payments ?? []) as Record<string, unknown>[]).map((p) => ({
       id: p.id as string,
       date: p.date as string,
@@ -148,6 +149,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     dayOfMonth: Number(r.day_of_month),
     isActive: Boolean(r.is_active),
     lastGeneratedMonth: (r.last_generated_month ?? null) as string | null,
+    skippedMonths: ((r.skipped_months ?? []) as string[]),
     isPrivate: (r.is_private ?? false) as boolean,
     ownerId: (r.owner_user_id ?? undefined) as string | undefined,
   }));
@@ -208,7 +210,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       if (action.patch.date !== undefined) patch.date = action.patch.date;
       if (action.patch.amount !== undefined) patch.amount = action.patch.amount;
       if (action.patch.type !== undefined) patch.type = action.patch.type;
-      if (action.patch.categoryId !== undefined) patch.category_id = action.patch.categoryId;
+      if (action.patch.categoryId !== undefined) patch.category_id = action.patch.categoryId || null;
       if (action.patch.payerId !== undefined) patch.payer_user_id = action.patch.payerId;
       if (action.patch.description !== undefined) patch.description = action.patch.description;
       if (action.patch.receiverId !== undefined) patch.settlement_receiver_user_id = action.patch.receiverId || null;
@@ -314,10 +316,23 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         day_of_month: action.rt.dayOfMonth,
         is_active: action.rt.isActive,
         last_generated_month: action.rt.lastGeneratedMonth ?? null,
+        skipped_months: action.rt.skippedMonths ?? [],
         is_private: action.rt.isPrivate ?? false,
         owner_user_id: action.rt.ownerId ?? userId,
       });
       return;
+    case "TOGGLE_RECURRING_SKIP": {
+      // stateRef är fortfarande pre-action — beräkna nytt värde med samma logik som reducern
+      const rt = stateRef.current.recurringTransactions.find(r => r.id === action.id);
+      const current = rt?.skippedMonths ?? [];
+      const newSkipped = action.skip
+        ? current.includes(action.monthKey) ? current : [...current, action.monthKey]
+        : current.filter(m => m !== action.monthKey);
+      await supabase.from("recurring_transactions")
+        .update({ skipped_months: newSkipped })
+        .eq("id", action.id);
+      return;
+    }
     case "DELETE_RECURRING":
       await supabase.from("recurring_transactions").delete().eq("id", action.id).eq("household_id", householdId);
       return;
@@ -325,6 +340,11 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       await supabase.from("recurring_transactions")
         .update({ last_generated_month: action.month })
         .eq("id", action.id);
+      return;
+    case "MARK_LOAN_GENERATED":
+      await supabase.from("loans")
+        .update({ last_generated_month: action.month })
+        .eq("id", action.loanId);
       return;
     case "UPSERT_RULE":
       await supabase.from("import_rules").upsert({
@@ -530,7 +550,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     const active = state.recurringTransactions.filter(r => r.isActive);
 
     for (const rt of active) {
-      const dates = monthsToGenerate(rt, today);
+      const dates = monthsToGenerate(rt, today).filter(d => !rt.skippedMonths?.includes(d.slice(0, 7)));
       if (dates.length === 0) continue;
 
       for (const date of dates) {
@@ -564,6 +584,38 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       const primaryPerson = state.persons[0];
       if (!primaryPerson) continue;
       dispatch({ type: "ADD_GOAL_CONTRIB", goalId: goal.id, amount: contrib, personId: primaryPerson.id });
+    }
+
+    // Auto-generera månatlig amortering för aktiva lån
+    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const primaryPerson = state.persons[0];
+    if (primaryPerson) {
+      for (const loan of state.loans) {
+        if (loan.currentBalance <= 0) continue;
+        if (loan.monthlyAmortization <= 0) continue;
+        if (loan.lastGeneratedMonth === currentMonthKey) continue;
+        // Hoppa över om startdatum är i framtiden
+        if (loan.startDate && loan.startDate.slice(0, 7) > currentMonthKey) continue;
+        // Hoppa över om betalning redan finns denna månad (manuell eller auto)
+        const alreadyPaid = loan.payments.some(p => p.date.slice(0, 7) === currentMonthKey);
+        if (alreadyPaid) {
+          dispatch({ type: "MARK_LOAN_GENERATED", loanId: loan.id, month: currentMonthKey });
+          continue;
+        }
+        dispatch({
+          type: "ADD_LOAN_PAYMENT",
+          loanId: loan.id,
+          payment: {
+            id: crypto.randomUUID(),
+            date: todayIso,
+            amount: loan.monthlyAmortization,
+            isExtra: false,
+            personId: primaryPerson.id,
+            note: "Auto-genererad",
+          },
+        });
+        dispatch({ type: "MARK_LOAN_GENERATED", loanId: loan.id, month: currentMonthKey });
+      }
     }
 
     generatingRef.current = false;

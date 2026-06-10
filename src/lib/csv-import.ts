@@ -1,4 +1,4 @@
-import Papa from "papaparse";
+﻿import Papa from "papaparse";
 import { Category, Transaction, ImportRule } from "@/types/budget";
 
 export type BankPreset = {
@@ -129,12 +129,12 @@ export async function parseCsvFile(file: File): Promise<ParseResult> {
     text = new TextDecoder("iso-8859-1").decode(buf);
   }
   // Strip BOM if present
-  text = text.replace(/^﻿/, "");
+  text = text.replace(/^\uFEFF/, "");
 
   // Strip leading comment/metadata lines (e.g. Swedbank exports start with "* Transaktioner Period...")
   const allLines = text.split(/\r?\n/);
   const firstDataIdx = allLines.findIndex((l) => {
-    const t = l.trim().replace(/^﻿/, "");
+    const t = l.trim().replace(/^\uFEFF/, "");
     return t.length > 0 && !t.startsWith("*");
   });
   const cleanedText = firstDataIdx > 0 ? allLines.slice(firstDataIdx).join("\n") : text;

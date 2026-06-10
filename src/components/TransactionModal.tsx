@@ -62,7 +62,7 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
         setCategoryId("");
         setIsPrivate(false);
       } else if (transaction) {
-        setType(transaction.type as any);
+        setType(transaction.type);
         setAmount(transaction.amount);
         setDate(transaction.date.split("T")[0]);
         setCategoryId(transaction.categoryId ?? "");
@@ -103,7 +103,7 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
         dispatch({
           type: "UPDATE_TX",
           id: transaction.id,
-          patch: { date: isoDate, amount: num, type: "settlement", payerId, receiverId, description: desc },
+          patch: { date: isoDate, amount: num, type: "settlement", payerId, receiverId, description: desc, categoryId: "" },
         });
         toast.success("Betalning uppdaterad");
       } else {

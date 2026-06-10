@@ -148,6 +148,11 @@ export default function Loans() {
     return { newMonthly, diff: newMonthly - totals.monthly };
   }, [shockRate, visibleLoans, totals.monthly]);
 
+  const currentMonthKey = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+
   return (
     <div className="space-y-6">
       <Tabs defaultValue="loans" className="space-y-6">
@@ -264,6 +269,11 @@ export default function Loans() {
                             if (l.ownerId === null && state.persons.length > 1) return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">🤝 {l.ownerShare}% / {100 - l.ownerShare}%</span>;
                             return null;
                           })()}
+                          {l.lastGeneratedMonth === currentMonthKey && l.monthlyAmortization > 0 && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                              ✓ Amortering bokförd
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

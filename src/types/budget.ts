@@ -89,6 +89,7 @@ export interface Loan {
   ownerShare: number;         // % share if shared
   icon: string;
   payments: LoanPayment[];
+  lastGeneratedMonth?: string | null; // "YYYY-MM", senaste månaden amortering auto-genererats
 }
 
 export interface Settings {
@@ -120,6 +121,7 @@ export interface RecurringTransaction {
   dayOfMonth: number; // 1–31
   isActive: boolean;
   lastGeneratedMonth: string | null; // "YYYY-MM", null = aldrig genererad
+  skippedMonths?: string[];          // "YYYY-MM"-nycklar för månader som ska hoppas över
   isPrivate?: boolean;
   ownerId?: string;
 }

@@ -24,6 +24,8 @@ export type Action =
   | { type: "UPSERT_RECURRING"; rt: RecurringTransaction }
   | { type: "DELETE_RECURRING"; id: string }
   | { type: "MARK_RECURRING_GENERATED"; id: string; month: string }
+  | { type: "MARK_LOAN_GENERATED"; loanId: string; month: string }
+  | { type: "TOGGLE_RECURRING_SKIP"; id: string; monthKey: string; skip: boolean }
   | { type: "UPSERT_RULE"; rule: ImportRule }
   | { type: "DELETE_RULE"; id: string }
   | { type: "RESET" }
@@ -118,6 +120,25 @@ export function reducer(state: AppState, action: Action): AppState {
         recurringTransactions: state.recurringTransactions.map(r =>
           r.id === action.id ? { ...r, lastGeneratedMonth: action.month } : r
         ),
+      };
+    case "MARK_LOAN_GENERATED":
+      return {
+        ...state,
+        loans: state.loans.map(l =>
+          l.id === action.loanId ? { ...l, lastGeneratedMonth: action.month } : l
+        ),
+      };
+    case "TOGGLE_RECURRING_SKIP":
+      return {
+        ...state,
+        recurringTransactions: state.recurringTransactions.map(r => {
+          if (r.id !== action.id) return r;
+          const current = r.skippedMonths ?? [];
+          const skippedMonths = action.skip
+            ? current.includes(action.monthKey) ? current : [...current, action.monthKey]
+            : current.filter(m => m !== action.monthKey);
+          return { ...r, skippedMonths };
+        }),
       };
     case "UPSERT_RULE": {
       const exists = state.importRules.find(r => r.id === action.rule.id);

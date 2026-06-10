@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+﻿import { useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import { Input } from "@/components/ui/input";
 
@@ -25,7 +25,7 @@ export function NumericInput({ value, onChange, onFocus, onBlur, ...props }: Num
       }}
       onChange={e => setRaw(e.target.value)}
       onBlur={e => {
-        const n = parseFloat((raw ?? "").replace(/[\s ]/g, "").replace(",", "."));
+        const n = parseFloat((raw ?? "").replace(/[\s\u00A0]/g, "").replace(",", "."));
         onChange(Number.isFinite(n) ? n : 0);
         setRaw(null);
         onBlur?.(e as React.FocusEvent<HTMLInputElement>);

@@ -61,9 +61,7 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
   const txs = state.transactions.filter(t => inMonth(t.date, year, month, payDay));
   let actualVariable = 0;
   let actualFixed = 0;
-  let settlementsOut = 0;
   for (const t of txs) {
-    if (t.type === "settlement") { settlementsOut += t.amount; continue; }
     if (t.type !== "expense") continue;
     if (!isShared(t)) continue;
     if (isFixedExpense(t, fixedCats)) actualFixed += t.amount;
@@ -73,7 +71,7 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
   const plannedLoans = state.loans.reduce((s, l) => s + l.monthlyPayment + (l.monthlyFee ?? 0), 0);
   const plannedSavings = state.goals.reduce((s, g) => s + (g.monthlyContribution ?? 0), 0);
   const plannedFreeToSpend = Math.max(0, plannedIncome - plannedFixed - plannedLoans - plannedSavings);
-  const remaining = plannedFreeToSpend - actualVariable - settlementsOut;
+  const remaining = plannedFreeToSpend - actualVariable;
   const spendPercent = plannedFreeToSpend > 0 ? actualVariable / plannedFreeToSpend : 0;
 
   return {
@@ -140,7 +138,7 @@ function buildFixedCatIds(state: AppState): Set<string> {
 //  2. den är auto-genererad från en återkommande mall (isRecurring: true)
 // Inte hela kategorin — annars klassas t.ex. matinköp i "Mat & Hushåll" som fasta
 // bara för att Billån råkar ligga i samma kategori.
-const isFixedExpense = (t: { categoryId?: string; isRecurring?: boolean }, fixedCats: Set<string>) =>
+export const isFixedExpense = (t: { categoryId?: string; isRecurring?: boolean }, fixedCats: Set<string>) =>
   fixedCats.has(t.categoryId ?? "") || !!t.isRecurring;
 
 export function summarizeMonth(state: AppState, year: number, month: number): MonthSummary {
@@ -157,15 +155,20 @@ export function summarizeMonth(state: AppState, year: number, month: number): Mo
       if (isShared(t)) income += t.amount;
       continue;
     }
+    if (t.type !== "expense") continue;
     if (isShared(t)) {
       if (isFixedExpense(t, fixedCats)) fixed += t.amount;
       else variable += t.amount;
-      byCategory[t.categoryId] = (byCategory[t.categoryId] || 0) + t.amount;
+      if (t.categoryId) {
+        byCategory[t.categoryId] = (byCategory[t.categoryId] || 0) + t.amount;
+      }
       byPerson[t.payerId] = (byPerson[t.payerId] || 0) + t.amount;
     } else {
       if (isFixedExpense(t, fixedCats)) personalFixed += t.amount;
       else personalVariable += t.amount;
-      personalByCategory[t.categoryId] = (personalByCategory[t.categoryId] || 0) + t.amount;
+      if (t.categoryId) {
+        personalByCategory[t.categoryId] = (personalByCategory[t.categoryId] || 0) + t.amount;
+      }
     }
   }
   const expenses = fixed + variable;
@@ -289,10 +292,11 @@ export function calcCumulativeSplit(state: AppState) {
   const diff: Record<string, number> = {};
   for (const p of persons) diff[p.id] = (paid[p.id] ?? 0) - share[p.id];
 
+  const personIds = new Set(persons.map(p => p.id));
   for (const s of state.transactions.filter(t => t.type === "settlement")) {
-    if (s.payerId && s.receiverId) {
-      diff[s.payerId] = (diff[s.payerId] ?? 0) + s.amount;
-      diff[s.receiverId] = (diff[s.receiverId] ?? 0) - s.amount;
+    if (s.payerId && s.receiverId && personIds.has(s.payerId) && personIds.has(s.receiverId)) {
+      diff[s.payerId] += s.amount;
+      diff[s.receiverId] -= s.amount;
     }
   }
 
