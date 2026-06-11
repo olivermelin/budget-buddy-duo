@@ -18,8 +18,8 @@ test.describe('Lån', () => {
     await expect(page.getByText(/Swedbank/)).toBeVisible();
   });
 
-  test('öppnar amorteringssimulator-fliken', async ({ page }) => {
-    await page.getByRole('tab', { name: /Amorteringssimulator/i }).click();
-    await expect(page.getByText(/amorteringssimulator/i).last()).toBeVisible({ timeout: 5_000 });
+  test('öppnar simulera-fliken', async ({ page }) => {
+    await page.getByRole('tab', { name: /Simulera/i }).click();
+    await expect(page.getByText(/amorteringssimulator/i).first()).toBeVisible({ timeout: 5_000 });
   });
 });

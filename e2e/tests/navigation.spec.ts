@@ -8,7 +8,7 @@ test.describe('Navigering', () => {
 
   test('Budget-sidan laddar', async ({ page }) => {
     await page.goto('/budget');
-    await expect(page.getByRole('heading', { name: 'Budget' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Planera' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('Lån-sidan laddar', async ({ page }) => {
