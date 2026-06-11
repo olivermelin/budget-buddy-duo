@@ -3,7 +3,7 @@ import { test, expect } from '../support/base';
 test.describe('Budget', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/budget');
-    await expect(page.getByRole('heading', { name: 'Budget' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Planera' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('visar alla kategorier från fixturdata', async ({ page }) => {

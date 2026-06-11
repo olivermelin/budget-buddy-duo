@@ -6,14 +6,16 @@ import {
 } from './fixtures';
 
 export async function setupMockApi(page: Page): Promise<void> {
-  const ref = process.env.SUPABASE_PROJECT_REF ?? 'local';
-
-  // Inject a valid-looking session into localStorage before app scripts run.
-  // The Supabase SDK reads this on startup — no network call needed for auth.
-  await page.addInitScript(
-    ({ key, session }) => { window.localStorage.setItem(key, JSON.stringify(session)); },
-    { key: `sb-${ref}-auth-token`, session: FAKE_SESSION },
-  );
+  // Intercept localStorage.getItem for any sb-*-auth-token key so the Supabase SDK
+  // finds a valid session regardless of which project ref is compiled into the app.
+  // This avoids the fragile ref-extraction dance in playwright.config.ts.
+  await page.addInitScript(({ session }) => {
+    const _get = window.localStorage.getItem.bind(window.localStorage);
+    window.localStorage.getItem = (key: string) => {
+      if (/^sb-[^-]+-auth-token$/.test(key)) return JSON.stringify(session);
+      return _get(key);
+    };
+  }, { session: FAKE_SESSION });
 
   // Intercept auth endpoints (token refresh, user lookup)
   await page.route('**/auth/v1/**', async (route) => {
@@ -73,4 +75,9 @@ export async function setupMockApi(page: Page): Promise<void> {
 
     await route.fulfill({ json: data });
   });
+
+  // Supabase Realtime uses WebSocket — page.route() doesn't intercept it.
+  // Close immediately so budget-store.tsx never shows the "Realtidsuppdateringar pausade" toast
+  // that would cover UI elements and make selectors flaky.
+  await page.routeWebSocket('**/realtime/v1/**', ws => ws.close());
 }
