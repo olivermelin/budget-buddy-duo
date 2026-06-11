@@ -1,20 +1,17 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
-import { lastNMonths, summarizeMonth, detectSubscriptions } from "@/lib/analytics";
-import { sek, monthShort, monthLabel, dateLabel } from "@/lib/format";
+import { lastNMonths, summarizeMonth } from "@/lib/analytics";
+import { sek, monthShort, monthLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, Repeat, Wand2, CheckCircle2, Lock } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
-import { RecurringTransaction } from "@/types/budget";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, BarChart, Bar, Legend, AreaChart, Area,
 } from "recharts";
 
-type Tab = "diagram" | "ar" | "prenumerationer";
+type Tab = "diagram" | "ar";
 
 const tooltipStyle = {
   background: "hsl(var(--card))",
@@ -37,7 +34,6 @@ export default function Statistics() {
         {([
           { id: "diagram", label: "Diagram" },
           { id: "ar", label: "Årsöversikt" },
-          { id: "prenumerationer", label: "Prenumerationer" },
         ] as { id: Tab; label: string }[]).map(t => (
           <button
             key={t.id}
@@ -54,7 +50,6 @@ export default function Statistics() {
 
       {tab === "diagram" && <DiagramTab />}
       {tab === "ar" && <ArTab />}
-      {tab === "prenumerationer" && <PrenumerationerTab />}
     </div>
   );
 }
@@ -280,23 +275,23 @@ function ArTab() {
           })}
         </div>
 
-        <div className="mt-6 overflow-x-auto">
+        <div className="mt-6 overflow-x-auto rounded-xl border border-border">
           <table className="w-full text-sm">
-            <thead className="text-muted-foreground">
+            <thead className="bg-muted/40 text-muted-foreground">
               <tr className="text-left">
-                <th className="py-2 font-medium">Månad</th>
-                <th className="py-2 font-medium text-right">Inkomst</th>
-                <th className="py-2 font-medium text-right">Utgift</th>
-                <th className="py-2 font-medium text-right">Sparande</th>
+                <th className="py-2 px-3 font-medium">Månad</th>
+                <th className="py-2 px-3 font-medium text-right">Inkomst</th>
+                <th className="py-2 px-3 font-medium text-right">Utgift</th>
+                <th className="py-2 px-3 font-medium text-right">Sparande</th>
               </tr>
             </thead>
             <tbody>
               {months.map((m, i) => (
                 <tr key={i} className="border-t border-border">
-                  <td className="py-2 capitalize">{monthShort(new Date(year, i, 1))}</td>
-                  <td className="py-2 text-right tabular-nums">{sek(m.income)}</td>
-                  <td className="py-2 text-right tabular-nums">{sek(m.expenses)}</td>
-                  <td className={cn("py-2 text-right tabular-nums font-medium", m.remaining >= 0 ? "text-success" : "text-destructive")}>{sek(m.remaining)}</td>
+                  <td className="py-2 px-3 capitalize">{monthShort(new Date(year, i, 1))}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">{sek(m.income)}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">{sek(m.expenses)}</td>
+                  <td className={cn("py-2 px-3 text-right tabular-nums font-medium", m.remaining >= 0 ? "text-success" : "text-destructive")}>{sek(m.remaining)}</td>
                 </tr>
               ))}
             </tbody>
@@ -325,143 +320,4 @@ function ArTab() {
   );
 }
 
-// ─── Prenumerationer ──────────────────────────────────────────────────────────
-
-function PrenumerationerTab() {
-  const { state, dispatch } = useBudget();
-  const subs = useMemo(() => detectSubscriptions(state), [state]);
-  const catMap = Object.fromEntries(state.categories.map(c => [c.id, c]));
-
-  const recurringByDesc = useMemo(() => {
-    const m = new Map<string, RecurringTransaction>();
-    for (const r of state.recurringTransactions) m.set(r.description.trim().toLowerCase(), r);
-    return m;
-  }, [state.recurringTransactions]);
-
-  const active = subs.filter(s => s.status === "active");
-  const monthly = active.reduce((s, sub) => s + sub.amount, 0);
-  const suggestions = active.filter(s => !recurringByDesc.has(s.description.trim().toLowerCase()));
-
-  const createTemplate = (subId: string) => {
-    const sub = subs.find(s => s.id === subId);
-    if (!sub) return;
-    const matching = state.transactions.filter(t =>
-      t.type === "expense" &&
-      t.description.trim().toLowerCase() === sub.description.trim().toLowerCase() &&
-      Math.round(t.amount) === sub.amount,
-    );
-    if (matching.length === 0) return;
-    const days = matching.map(t => Number(t.date.slice(8, 10))).filter(n => !Number.isNaN(n));
-    const dayOfMonth = days.length > 0 ? Math.round(days.reduce((a, b) => a + b, 0) / days.length) : 25;
-    const latest = [...matching].sort((a, b) => b.date.localeCompare(a.date))[0];
-    const rt: RecurringTransaction = {
-      id: crypto.randomUUID(),
-      description: sub.description,
-      amount: sub.amount,
-      type: "expense",
-      categoryId: sub.categoryId,
-      payerId: latest.payerId,
-      dayOfMonth: Math.min(28, Math.max(1, dayOfMonth)),
-      isActive: true,
-      lastGeneratedMonth: new Date().toISOString().slice(0, 7),
-    };
-    dispatch({ type: "UPSERT_RECURRING", rt });
-    toast.success(`Mall skapad för ${sub.description}`, { description: `${sek(sub.amount)} runt dag ${rt.dayOfMonth}` });
-  };
-
-  const createAllTemplates = () => {
-    if (suggestions.length === 0) { toast.info("Inga nya förslag"); return; }
-    for (const s of suggestions) createTemplate(s.id);
-    toast.success(`${suggestions.length} mallar skapade`);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <Card className="p-5 rounded-2xl shadow-soft border-0">
-          <div className="text-xs text-muted-foreground">Aktiva prenumerationer</div>
-          <div className="text-2xl font-display font-bold mt-1">{active.length} st</div>
-        </Card>
-        <Card className="p-5 rounded-2xl shadow-soft border-0 bg-gradient-primary text-white">
-          <div className="text-xs opacity-80">Per månad</div>
-          <div className="text-2xl font-display font-bold mt-1">{sek(monthly)}</div>
-        </Card>
-        <Card className="p-5 rounded-2xl shadow-soft border-0 col-span-2 md:col-span-1">
-          <div className="text-xs text-muted-foreground">Per år</div>
-          <div className="text-2xl font-display font-bold mt-1 tabular-nums">{sek(monthly * 12)}</div>
-        </Card>
-      </div>
-
-      {suggestions.length > 0 && (
-        <Card className="p-4 rounded-2xl border-0 shadow-soft bg-primary/5">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2 text-sm">
-              <Wand2 className="h-4 w-4 text-primary shrink-0" />
-              <span className="font-medium">{suggestions.length} förslag på återkommande mallar</span>
-            </div>
-            <Button size="sm" onClick={createAllTemplates} className="bg-gradient-primary rounded-xl">
-              <Wand2 className="h-4 w-4" /> Skapa alla
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      <Card className="rounded-2xl shadow-soft border-0 overflow-hidden divide-y divide-border">
-        {subs.length === 0 && (
-          <div className="p-10 text-center text-sm text-muted-foreground">
-            <Repeat className="h-6 w-6 mx-auto mb-2 opacity-50" />
-            Inga återkommande utgifter hittades än.
-          </div>
-        )}
-        {subs.map(sub => {
-          const c = catMap[sub.categoryId];
-          const hasTemplate = recurringByDesc.has(sub.description.trim().toLowerCase());
-          return (
-            <div key={sub.id} className="flex items-center gap-3 p-4 flex-wrap">
-              <div
-                className="h-10 w-10 rounded-xl flex items-center justify-center text-lg shrink-0"
-                style={{ backgroundColor: `hsl(${c?.color} / 0.15)` }}
-              >{c?.icon}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {sub.isPrivate && <Lock className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Privat" />}
-                  <span className="font-medium truncate">{sub.description}</span>
-                  {sub.status === "cancelled" && <Badge variant="secondary" className="text-[10px]">Avslutad</Badge>}
-                  {sub.isPrivate && <Badge variant="outline" className="text-[10px]">Privat</Badge>}
-                  {hasTemplate && (
-                    <Badge variant="outline" className="text-[10px] gap-1">
-                      <CheckCircle2 className="h-3 w-3 text-success" /> mall
-                    </Badge>
-                  )}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {sub.occurrences} mån · senast {dateLabel(sub.lastDate)} · {sek(sub.amount * 12)}/år
-                </div>
-              </div>
-              <div className={cn("font-display font-bold tabular-nums", sub.status === "cancelled" && "line-through opacity-50")}>
-                {sek(sub.amount)}
-              </div>
-              {!hasTemplate && sub.status === "active" && (
-                <Button size="sm" variant="outline" className="rounded-xl" onClick={() => createTemplate(sub.id)}>
-                  <Wand2 className="h-4 w-4" /> Skapa mall
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant={sub.status === "active" ? "outline" : "default"}
-                className="rounded-xl"
-                onClick={() => {
-                  const next = sub.status === "active" ? "cancelled" : "active";
-                  dispatch({ type: "SET_SUB_STATUS", key: sub.id, status: next });
-                  toast.success(next === "cancelled" ? "Markerad som avslutad" : "Aktiverad igen");
-                }}
-              >
-                {sub.status === "active" ? "Avsluta" : "Aktivera"}
-              </Button>
-            </div>
-          );
-        })}
-      </Card>
-    </div>
-  );
-}
+// Prenumerationer bor numera på Planera-sidan (SubscriptionsPanel).

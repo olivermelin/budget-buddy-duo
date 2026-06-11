@@ -10,11 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertCircle, ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Lock, Sparkles } from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Lock, Sparkles, CalendarOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { RecurringTransaction } from "@/types/budget";
 import { NumericInput } from "@/components/ui/numeric-input";
+import { SubscriptionsPanel } from "@/components/SubscriptionsPanel";
 
 const ICONS = ["🛒", "🏠", "🚗", "🎬", "🛍️", "📱", "✈️", "✨", "🍽️", "💪", "📚", "🐾", "💊", "🎁"];
 
@@ -41,7 +42,43 @@ const SUGGESTED_CATEGORIES: SuggestedCategory[] = [
 // Match by first significant word so "Mat & Hushåll" blocks "Mat & Dagligvaror"
 const normKey = (name: string) => name.toLowerCase().split(/[\s&,]/)[0].trim();
 
+type PlanTab = "budget" | "prenumerationer";
+
 export default function Budget() {
+  const [tab, setTab] = useState<PlanTab>("budget");
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl md:text-4xl font-display font-bold">Planera</h1>
+        <p className="text-sm text-muted-foreground mt-1">Budget, återkommande poster och prenumerationer.</p>
+      </div>
+
+      <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit">
+        {([
+          { id: "budget", label: "Budget" },
+          { id: "prenumerationer", label: "Prenumerationer" },
+        ] as { id: PlanTab; label: string }[]).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "px-4 py-1.5 rounded-lg text-sm font-medium transition",
+              tab === t.id ? "bg-card shadow-soft" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "budget" && <BudgetTab />}
+      {tab === "prenumerationer" && <SubscriptionsPanel />}
+    </div>
+  );
+}
+
+function BudgetTab() {
   const { state } = useBudget();
   const [offset, setOffset] = useState(0);
   const ref = new Date();
@@ -68,11 +105,7 @@ export default function Budget() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-display font-bold">Budget</h1>
-          <p className="text-sm text-muted-foreground mt-1">Följ och planera era utgifter månadsvis.</p>
-        </div>
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-1 bg-card rounded-xl border p-1 shadow-soft">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setOffset(o => o - 1)}><ChevronLeft className="h-4 w-4" /></Button>
           <span className="text-sm font-medium px-2 min-w-[140px] text-center capitalize">{monthLabel(monthDate)}</span>
@@ -268,7 +301,9 @@ function CategoriesEditor() {
                 {c.isIncome
                   ? "Inkomst"
                   : c.isFixed
-                  ? `Fast utgift · ${effectiveBudgets[c.id].toLocaleString("sv-SE")} kr/mån`
+                  ? (effectiveBudgets[c.id] > 0
+                    ? `Fast utgift · ${effectiveBudgets[c.id].toLocaleString("sv-SE")} kr/mån`
+                    : "Fast utgift · inga aktiva återkommande poster – lägg till under Återkommande")
                   : c.budget
                   ? `Rörlig utgift · Budget ${c.budget.toLocaleString("sv-SE")} kr/mån`
                   : "Rörlig utgift"}
@@ -329,7 +364,7 @@ function CategoriesEditor() {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-medium">Fast utgift</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">Budget beräknas automatiskt från återkommande transaktioner</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Budgeten följer kategorins aktiva återkommande poster — ändrar du dem ändras budgeten. Sätts inte manuellt.</div>
                   </div>
                   <Switch id="cat-fixed" checked={isFixed} onCheckedChange={setIsFixed} />
                 </div>
@@ -362,6 +397,11 @@ function RecurringEditor() {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringTransaction | null>(null);
+
+  const currentMonthKey = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
 
   const [type, setType] = useState<"expense" | "income">("expense");
   const [description, setDescription] = useState("");
@@ -419,6 +459,7 @@ function RecurringEditor() {
       dayOfMonth: dayNum,
       isActive,
       lastGeneratedMonth: editing?.lastGeneratedMonth ?? null,
+      skippedMonths: editing?.skippedMonths ?? [],
       isPrivate: effectivePrivate,
       ownerId: effectivePrivate ? user?.id : undefined,
     };
@@ -459,32 +500,53 @@ function RecurringEditor() {
         const sumActive = (rts: RecurringTransaction[]) =>
           rts.filter(r => r.isActive && r.type === "expense").reduce((s, r) => s + r.amount, 0);
 
-        const renderRow = (rt: RecurringTransaction) => (
-          <div key={rt.id} className={cn("flex items-center gap-3 p-3 rounded-xl bg-muted/30", !rt.isActive && "opacity-50")}>
-            <div className="text-lg w-8 text-center">{rt.type === "income" ? "💰" : "📅"}</div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                {rt.isPrivate && <Lock className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Privat" />}
-                <span className="font-medium text-sm truncate">{rt.description}</span>
-                <span className={cn("text-xs px-1.5 py-0.5 rounded-md font-medium", rt.type === "income" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
-                  {typeLabel(rt)}
-                </span>
+        const renderRow = (rt: RecurringTransaction) => {
+          const isSkippedThisMonth = rt.skippedMonths?.includes(currentMonthKey) ?? false;
+          return (
+            <div key={rt.id} className={cn("flex items-center gap-3 p-3 rounded-xl bg-muted/30", !rt.isActive && "opacity-50")}>
+              <div className="text-lg w-8 text-center">{rt.type === "income" ? "💰" : "📅"}</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {rt.isPrivate && <Lock className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Privat" />}
+                  <span className="font-medium text-sm truncate">{rt.description}</span>
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded-md font-medium", rt.type === "income" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
+                    {typeLabel(rt)}
+                  </span>
+                  {isSkippedThisMonth && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-md font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                      Hoppad denna månad
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {rt.amount.toLocaleString("sv-SE")} kr · dag {rt.dayOfMonth} · {catName(rt.categoryId)} · {personName(rt.payerId)}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {rt.amount.toLocaleString("sv-SE")} kr · dag {rt.dayOfMonth} · {catName(rt.categoryId)} · {personName(rt.payerId)}
-              </p>
+              <div className="flex items-center gap-1 shrink-0">
+                <Switch checked={rt.isActive} onCheckedChange={() => toggleActive(rt)} aria-label={rt.isActive ? "Inaktivera" : "Aktivera"} />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-8 w-8", isSkippedThisMonth ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}
+                  onClick={() => {
+                    dispatch({ type: "TOGGLE_RECURRING_SKIP", id: rt.id, monthKey: currentMonthKey, skip: !isSkippedThisMonth });
+                    toast.success(isSkippedThisMonth ? `${rt.description} aktiveras igen denna månad` : `${rt.description} hoppas över denna månad`);
+                  }}
+                  title={isSkippedThisMonth ? "Ångra skip denna månad" : "Hoppa över denna månad"}
+                  aria-label={isSkippedThisMonth ? "Ångra skip denna månad" : "Hoppa över denna månad"}
+                >
+                  <CalendarOff className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(rt)} aria-label="Redigera">
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => remove(rt.id)} aria-label="Ta bort">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Switch checked={rt.isActive} onCheckedChange={() => toggleActive(rt)} aria-label={rt.isActive ? "Inaktivera" : "Aktivera"} />
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(rt)} aria-label="Redigera">
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => remove(rt.id)} aria-label="Ta bort">
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-        );
+          );
+        };
 
         return (
           <div className="space-y-5">

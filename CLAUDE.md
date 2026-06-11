@@ -53,14 +53,17 @@ Kolumnnamn i databasen är snake_case; de mappas i `loadHouseholdData()`:
 - `household_id` filtreras på i varje query och varje write (defence-in-depth utöver RLS)
 
 ### Routing (App.tsx)
-Svenska URL-sökvägar: `/transaktioner`, `/sparmal`, `/lan`, `/statistik`, `/arsoversikt`, `/prenumerationer`, `/installningar`, `/parlage`, `/import`.
+Kanoniska sökvägar: `/` (Översikt), `/transactions`, `/budget` (Planera: budget + återkommande + prenumerationer), `/couple` (Fördelning), `/goals`, `/loans`, `/statistics`, `/settings`. Gamla svenska URL:er (`/transaktioner`, `/sparmal`, `/prenumerationer` m.fl.) redirectas i App.tsx.
 
-Publika rutter: `/login`, `/auth/callback`, `/integritetspolicy`, `/onboarding`.
+Navigationen är uppdelad i fyra primära ytor (Översikt, Transaktioner, Planera, Fördelning) + en "Mer"-grupp (Sparmål, Lån, Statistik, Inställningar) — se `primaryNav`/`overflowNav` i AppShell.tsx.
+
+Publika rutter: `/login`, `/auth/callback`, `/privacy-policy`, `/onboarding`.
 
 ### Analytikfunktioner (`src/lib/analytics.ts`)
 - `summarizeMonth()` — inkomst/utgift/sparande per månad
 - `calcSplit()` — beräknar vem som ska betala vem (50/50 eller inkomstbaserat)
 - `buildMonthPlan()` — planerat vs faktiskt baserat på återkommande transaktioner
+- `calcRemainingToSpend()` — **appens enda sanning för "kvar att spendera"**; alla vyer som visar talet ska använda denna (plan-läge när månadsplan finns, annars inkomst − utgifter)
 - `detectSubscriptions()` — hittar prenumerationsmönster i transaktionshistoriken
 - `computeEffectiveBudgets()` — fasta kategoriers budget = summa aktiva återkommande utgifter
 

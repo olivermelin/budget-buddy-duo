@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useBudget } from "@/store/budget-store";
-import { calcSplit, calcCumulativeSplit, inMonth, Settlement } from "@/lib/analytics";
+import { calcSplit, calcCumulativeSplit, inMonth, isFixedExpense, Settlement } from "@/lib/analytics";
 import { sek, monthLabel, periodLabel, pct, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, ArrowRight, Home, Receipt, Lock, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowRight, Home, Receipt, Lock, AlertTriangle, Trash2, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TransactionModal } from "@/components/TransactionModal";
+import { deleteTxWithUndo } from "@/lib/tx-actions";
 
 export default function CoupleMode() {
   const { state, dispatch } = useBudget();
@@ -31,21 +33,27 @@ export default function CoupleMode() {
     () => new Set(state.categories.filter(c => c.isFixed).map(c => c.id)),
     [state.categories],
   );
-  const isFixed = (t: { categoryId?: string; isRecurring?: boolean }) =>
-    fixedCatIds.has(t.categoryId ?? "") || !!t.isRecurring;
   const breakdownTxs = useMemo(() => {
     if (!breakdown) return [];
     return state.transactions.filter(t =>
       t.type === "expense" &&
       !t.isPrivate &&
       inMonth(t.date, monthDate.getFullYear(), monthDate.getMonth(), state.settings.payDay ?? 1) &&
-      (breakdown === "fixed" ? isFixed(t) : !isFixed(t))
+      (breakdown === "fixed" ? isFixedExpense(t, fixedCatIds) : !isFixedExpense(t, fixedCatIds))
     ).sort((a, b) => b.date.localeCompare(a.date));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [breakdown, state.transactions, monthDate, fixedCatIds]);
 
   const totalIncome = state.persons.reduce((s, p) => s + p.income, 0);
-  const totalExpenses = split.fixedTotal + split.variableTotal;
+  const totalExpenses = split.total;
+
+  // Historik över registrerade avstämningar (settlement-transaktioner), senaste först.
+  const settlementHistory = useMemo(
+    () => state.transactions
+      .filter(t => t.type === "settlement")
+      .sort((a, b) => b.date.localeCompare(a.date)),
+    [state.transactions],
+  );
 
   // Privata utgifter denna månad (endast aktuell användares — RLS filtrerar bort sambons).
   const personalExpenses = useMemo(() => {
@@ -85,7 +93,7 @@ export default function CoupleMode() {
           <div className="text-sm text-warning-foreground">
             {state.persons.filter(p => p.income === 0).map(p => p.name).join(", ")} har 0 kr i inkomst.
             {" "}Inkomstbaserad uppdelning fungerar inte korrekt — uppdatera inkomsten i{" "}
-            <a href="/settings" className="underline font-medium">Inställningar</a>.
+            <Link to="/settings" className="underline font-medium">Inställningar</Link>.
           </div>
         </Card>
       )}
@@ -233,6 +241,7 @@ export default function CoupleMode() {
               const diff = split.diff[p.id] ?? 0;
               const fixedShare = split.fixedShare[p.id] ?? 0;
               const variableShare = split.variableShare[p.id] ?? 0;
+              const customShare = split.customShare[p.id] ?? 0;
               const fixedPct = state.settings.splitMode === "50/50"
                 ? 1 / Math.max(1, state.persons.length)
                 : totalIncome > 0 ? p.income / totalIncome : 0;
@@ -299,6 +308,15 @@ export default function CoupleMode() {
                         </span>
                         <span className="font-medium tabular-nums">{sek(variableShare)}</span>
                       </div>
+                      {split.customTotal > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground flex items-center gap-1.5">
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                            Anpassad fördelning
+                          </span>
+                          <span className="font-medium tabular-nums">{sek(customShare)}</span>
+                        </div>
+                      )}
                       <div className="border-t border-border/50 pt-3 flex items-center justify-between font-semibold">
                         <span>Total andel</span>
                         <span className="tabular-nums">{sek(share)}</span>
@@ -311,6 +329,58 @@ export default function CoupleMode() {
           </div>
         </div>
       )}
+
+      {/* Avstämningshistorik */}
+      <Card className="rounded-2xl shadow-soft border-0 overflow-hidden">
+        <div className="p-5 md:p-6 pb-3">
+          <div className="flex items-center gap-2">
+            <ArrowRight className="h-4 w-4 text-primary" />
+            <h2 className="font-display font-semibold">Avstämningshistorik</h2>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {settlementHistory.length === 0
+                ? ""
+                : settlementHistory.length === 1 ? "1 avstämning" : `${settlementHistory.length} avstämningar`}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">Registrerade överföringar mellan er.</p>
+        </div>
+        {settlementHistory.length === 0 ? (
+          <p className="text-sm text-muted-foreground px-5 md:px-6 pb-6">
+            Inga avstämningar registrerade än. Klicka på en utestående överföring ovan för att registrera en betalning.
+          </p>
+        ) : (
+          <div className="divide-y divide-border border-t border-border">
+            {settlementHistory.map(t => {
+              const from = personById[t.payerId];
+              const to = personById[t.receiverId ?? ""];
+              return (
+                <div key={t.id} className="flex items-center gap-3 px-5 md:px-6 py-3 group">
+                  {from && <ColorAvatar name={from.name} color={from.color} />}
+                  <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  {to && <ColorAvatar name={to.name} color={to.color} />}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm truncate">
+                      <span className="font-semibold">{from?.name ?? "Okänd"}</span>
+                      <span className="text-muted-foreground mx-1">betalade</span>
+                      <span className="font-semibold">{to?.name ?? "Okänd"}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{dateLabel(t.date)}</div>
+                  </div>
+                  <span className="font-display font-bold tabular-nums text-sm shrink-0">{sek(t.amount)}</span>
+                  <Button
+                    variant="ghost" size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition shrink-0"
+                    onClick={() => deleteTxWithUndo(t, dispatch)}
+                    aria-label={`Ta bort avstämning ${from?.name ?? ""} → ${to?.name ?? ""}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
 
       <Dialog open={breakdown !== null} onOpenChange={v => !v && setBreakdown(null)}>
         <DialogContent className="sm:max-w-lg rounded-2xl">

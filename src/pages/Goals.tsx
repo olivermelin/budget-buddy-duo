@@ -9,7 +9,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, Trophy, LineChart as LineChartIcon, Users } from "lucide-react";
+import { Plus, Trash2, Trophy, LineChart as LineChartIcon, Users, CalendarClock } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { SavingsGoal } from "@/types/budget";
@@ -101,6 +102,21 @@ export default function Goals() {
           const forecast = monthsLeft != null
             ? new Date(Date.now() + monthsLeft * 30 * 86400000)
             : null;
+          const deadlineStatus = (() => {
+            if (!g.targetDate || remaining <= 0) return null;
+            const deadlineDate = new Date(g.targetDate);
+            const msToDeadline = deadlineDate.getTime() - Date.now();
+            const monthsToDeadline = msToDeadline / (30 * 86400000);
+            if (monthsToDeadline <= 0) {
+              return { status: "late" as const, deadlineDate, neededPerMonth: 0 };
+            }
+            const neededPerMonth = remaining / monthsToDeadline;
+            let status: "on-track" | "at-risk" | "off-track";
+            if (avgPerMonth >= neededPerMonth) status = "on-track";
+            else if (avgPerMonth >= neededPerMonth * 0.8) status = "at-risk";
+            else status = "off-track";
+            return { status, deadlineDate, neededPerMonth };
+          })();
           const milestones = [0.25, 0.5, 0.75, 1];
           const byPerson = g.contributions.reduce<Record<string, number>>((acc, c) => {
             if (!c.personId) return acc;
@@ -192,6 +208,22 @@ export default function Goals() {
                     </span>
                   </div>
                   <Sparkline snapshots={g.snapshots ?? []} />
+                </div>
+              )}
+
+              {deadlineStatus && (
+                <div className="mt-4 flex items-center gap-2 text-xs">
+                  <CalendarClock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground flex-1 min-w-0">
+                    Deadline:{" "}
+                    <span className="text-foreground font-medium">
+                      {deadlineStatus.deadlineDate.toLocaleDateString("sv-SE", { day: "numeric", month: "long", year: "numeric" })}
+                    </span>
+                  </span>
+                  {deadlineStatus.status === "late" && <Badge variant="destructive" className="text-[10px] h-4 px-1.5 py-0 shrink-0">Försenat</Badge>}
+                  {deadlineStatus.status === "on-track" && <Badge className="text-[10px] h-4 px-1.5 py-0 shrink-0 bg-green-100 text-green-700 hover:bg-green-100 border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800">På spår</Badge>}
+                  {deadlineStatus.status === "at-risk" && <Badge variant="outline" className="text-[10px] h-4 px-1.5 py-0 shrink-0 border-amber-400 text-amber-600 dark:text-amber-400">Risk</Badge>}
+                  {deadlineStatus.status === "off-track" && <Badge variant="destructive" className="text-[10px] h-4 px-1.5 py-0 shrink-0">Ur spår</Badge>}
                 </div>
               )}
 
@@ -432,7 +464,7 @@ function ContribDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: (
           )}
 
           {goal && goal.contributions.length > 0 && (
-            <div className="text-xs text-muted-foreground space-y-1 max-h-24 overflow-auto pt-1">
+            <div className="text-xs text-muted-foreground space-y-1 max-h-24 overflow-y-auto pr-1 pt-1">
               {goal.contributions.slice(0, 5).map(c => {
                 const who = personById[c.personId]?.name;
                 return (
@@ -561,7 +593,7 @@ function SnapshotDialog({ goal, onClose }: { goal: SavingsGoal | null; onClose: 
           {snapshots.length > 0 && (
             <div className="pt-2">
               <div className="text-xs font-medium text-muted-foreground mb-2">Historik</div>
-              <ul className="space-y-1.5 max-h-32 overflow-auto">
+              <ul className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
                 {snapshots.slice(0, 8).map(s => (
                   <li key={s.id} className="flex items-center justify-between gap-2 text-xs">
                     <div className="flex-1 min-w-0">

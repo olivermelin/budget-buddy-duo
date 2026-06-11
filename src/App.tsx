@@ -73,7 +73,8 @@ const App = () => (
                 <Route path="/statistik" element={<Navigate to="/statistics" replace />} />
                 <Route path="/installningar" element={<Navigate to="/settings" replace />} />
                 <Route path="/arsoversikt" element={<Navigate to="/statistics" replace />} />
-                <Route path="/prenumerationer" element={<Navigate to="/statistics" replace />} />
+                <Route path="/prenumerationer" element={<Navigate to="/budget" replace />} />
+                <Route path="/planera" element={<Navigate to="/budget" replace />} />
                 <Route path="/import" element={<Navigate to="/settings" replace />} />
               </Route>
               <Route path="*" element={<NotFound />} />

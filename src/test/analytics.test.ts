@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { inMonth, summarizeMonth, lastNMonths, detectSubscriptions, calcSplit } from "@/lib/analytics";
-import { AppState, Transaction, Category, Person } from "@/types/budget";
+import { inMonth, summarizeMonth, lastNMonths, detectSubscriptions, calcSplit, calcCumulativeSplit, calcRemainingToSpend } from "@/lib/analytics";
+import { AppState, Transaction, Category, Person, RecurringTransaction } from "@/types/budget";
 
 // ─── Factories ──────────────────────────────────────────────────────────────
 
@@ -406,6 +406,130 @@ describe("calcSplit", () => {
     expect(result.share["p-2"]).toBe(500);
     expect(result.settlements).toHaveLength(1);
     expect(result.settlements[0].amount).toBe(500); // bara halva 1000 — inget extra från privata
+  });
+});
+
+describe("calcSplit — anpassad fördelning (splitShares)", () => {
+  const baseState = () => makeState({
+    settings: { householdName: "Test", splitMode: "50/50", theme: "system", payDay: 1 },
+    persons: [makePerson({ id: "p-1" }), makePerson({ id: "p-2", name: "Berit" })],
+    categories: [makeCategory({ id: "cat-1", isFixed: false })],
+  });
+
+  it("delar en transaktion enligt sina egna andelar (70/30)", () => {
+    const state = baseState();
+    state.transactions = [
+      makeTx({ date: "2026-03-10", amount: 1000, payerId: "p-1", splitShares: { "p-1": 70, "p-2": 30 } }),
+    ];
+    const result = calcSplit(state, 2026, 2);
+    expect(result.customTotal).toBe(1000);
+    expect(result.variableTotal).toBe(0);
+    expect(result.share["p-1"]).toBe(700);
+    expect(result.share["p-2"]).toBe(300);
+    // p-1 betalade 1000 men ska bara stå för 700 → p-2 är skyldig 300
+    expect(result.diff["p-1"]).toBe(300);
+    expect(result.settlements).toEqual([{ from: "p-2", to: "p-1", amount: 300 }]);
+  });
+
+  it("normaliserar andelar som inte summerar till 100", () => {
+    const state = baseState();
+    state.transactions = [
+      makeTx({ date: "2026-03-10", amount: 1000, payerId: "p-1", splitShares: { "p-1": 1, "p-2": 1 } }),
+    ];
+    const result = calcSplit(state, 2026, 2);
+    expect(result.customShare["p-1"]).toBe(500);
+    expect(result.customShare["p-2"]).toBe(500);
+  });
+
+  it("behandlar tomma andelar som standardfördelning", () => {
+    const state = baseState();
+    state.transactions = [
+      makeTx({ date: "2026-03-10", amount: 1000, payerId: "p-1", splitShares: {} }),
+    ];
+    const result = calcSplit(state, 2026, 2);
+    expect(result.customTotal).toBe(0);
+    expect(result.variableTotal).toBe(1000);
+    expect(result.share["p-1"]).toBe(500);
+  });
+
+  it("respekterar anpassade andelar även i kumulativ split", () => {
+    const state = baseState();
+    state.transactions = [
+      makeTx({ date: "2026-03-10", amount: 1000, payerId: "p-2", splitShares: { "p-1": 30, "p-2": 70 } }),
+    ];
+    const result = calcCumulativeSplit(state);
+    expect(result.diff["p-2"]).toBe(300);
+    expect(result.settlements).toEqual([{ from: "p-1", to: "p-2", amount: 300 }]);
+  });
+});
+
+describe("calcRemainingToSpend", () => {
+  const makeRecurring = (overrides: Partial<RecurringTransaction> = {}): RecurringTransaction => ({
+    id: `rt-${Math.random().toString(36).slice(2, 8)}`,
+    description: "Hyra",
+    amount: 10000,
+    type: "expense",
+    categoryId: "cat-1",
+    payerId: "p-1",
+    dayOfMonth: 25,
+    isActive: true,
+    lastGeneratedMonth: null,
+    ...overrides,
+  });
+
+  it("använder actual-modellen när ingen månadsplan finns", () => {
+    const state = makeState({
+      categories: [makeCategory({ id: "cat-1" })],
+      transactions: [
+        makeTx({ date: "2026-03-10", amount: 50000, type: "income" }),
+        makeTx({ date: "2026-03-15", amount: 3000, type: "expense" }),
+      ],
+    });
+    const rem = calcRemainingToSpend(state, 2026, 2);
+    expect(rem.model).toBe("actual");
+    expect(rem.value).toBe(47000);
+    expect(rem.expectedIncomeUsed).toBe(false);
+  });
+
+  it("faller tillbaka på registrerade löner när inkomsttransaktioner saknas", () => {
+    const state = makeState({
+      persons: [makePerson({ income: 30000 })],
+      categories: [makeCategory({ id: "cat-1" })],
+      transactions: [makeTx({ date: "2026-03-15", amount: 2000, type: "expense" })],
+    });
+    const rem = calcRemainingToSpend(state, 2026, 2);
+    expect(rem.model).toBe("actual");
+    expect(rem.expectedIncomeUsed).toBe(true);
+    expect(rem.income).toBe(30000);
+    expect(rem.value).toBe(28000);
+  });
+
+  it("använder planmodellen när återkommande poster finns", () => {
+    const state = makeState({
+      categories: [makeCategory({ id: "cat-1", isFixed: false })],
+      recurringTransactions: [
+        makeRecurring({ type: "income", amount: 40000 }),
+        makeRecurring({ type: "expense", amount: 10000 }),
+      ],
+      transactions: [makeTx({ date: "2026-03-15", amount: 5000, type: "expense" })],
+    });
+    const rem = calcRemainingToSpend(state, 2026, 2);
+    expect(rem.model).toBe("plan");
+    // planerat fritt = 40000 − 10000 = 30000; rörligt spenderat = 5000
+    expect(rem.value).toBe(25000);
+  });
+
+  it("räknar lånkostnader som plan även utan återkommande poster", () => {
+    const state = makeState({
+      categories: [makeCategory({ id: "cat-1" })],
+      loans: [{
+        id: "l-1", name: "Bolån", type: "mortgage", lender: "", originalAmount: 2000000,
+        currentBalance: 1800000, interestRate: 3.5, monthlyPayment: 8000,
+        monthlyAmortization: 3000, monthlyFee: 0, ownerShare: 50, icon: "🏠", payments: [],
+      }],
+    });
+    const rem = calcRemainingToSpend(state, 2026, 2);
+    expect(rem.model).toBe("plan");
   });
 });
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
-import { lastNMonths, summarizeMonth, buildMonthPlan, inMonth } from "@/lib/analytics";
+import { summarizeMonth, calcRemainingToSpend, inMonth } from "@/lib/analytics";
 import { sek, pct, monthLabel, periodLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ArrowDown, ArrowUp, Plus, Sparkles, TrendingDown, TrendingUp, Wallet, PiggyBank, Receipt, Home, Landmark, CalendarCheck, Pencil, Trash2, Lock } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { Transaction } from "@/types/budget";
+import { deleteTxWithUndo } from "@/lib/tx-actions";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -21,17 +22,16 @@ export default function Dashboard() {
   const cur = useMemo(() => summarizeMonth(state, today.getFullYear(), today.getMonth()), [state]);
   const prevDate = useMemo(() => new Date(today.getFullYear(), today.getMonth() - 1, 1), []);
   const prev = useMemo(() => summarizeMonth(state, prevDate.getFullYear(), prevDate.getMonth()), [state]);
-  const plan = useMemo(() => buildMonthPlan(state, today.getFullYear(), today.getMonth()), [state]);
 
-  // Om inga faktiska inkomsttransaktioner finns ännu denna månad (t.ex. lönen har inte kommit),
-  // använd summan av personernas registrerade månadslöner som förväntad inkomst.
-  const totalPersonIncome = useMemo(
-    () => state.persons.reduce((s, p) => s + p.income, 0),
-    [state.persons],
-  );
-  const usingExpectedIncome = cur.income === 0 && totalPersonIncome > 0;
-  const effectiveIncome = usingExpectedIncome ? totalPersonIncome : cur.income;
-  const effectiveRemaining = effectiveIncome - cur.expenses;
+  // "Kvar att spendera" beräknas centralt i calcRemainingToSpend — samma tal i hela appen.
+  const rem = useMemo(() => calcRemainingToSpend(state, today.getFullYear(), today.getMonth()), [state]);
+  const remPrev = useMemo(() => calcRemainingToSpend(state, prevDate.getFullYear(), prevDate.getMonth()), [state, prevDate]);
+  const plan = rem.plan;
+  const heroUsesPlan = rem.model === "plan";
+  const heroValue = rem.value;
+  const heroPrev = remPrev.value;
+  const usingExpectedIncome = rem.expectedIncomeUsed;
+  const effectiveIncome = rem.income;
 
   const recent = useMemo(() => state.transactions.slice(0, 5), [state.transactions]);
   const catMap = useMemo(() => Object.fromEntries(state.categories.map(c => [c.id, c])), [state.categories]);
@@ -79,16 +79,16 @@ export default function Dashboard() {
         break;
       }
     }
-    if (cur.remaining > prev.remaining && prev.remaining > 0) {
-      out.push({ label: `Ni har ${sek(cur.remaining - prev.remaining)} mer kvar än förra månaden`, tone: "good" });
+    if (heroValue > heroPrev && heroPrev > 0) {
+      out.push({ label: `Ni har ${sek(heroValue - heroPrev)} mer kvar än förra månaden`, tone: "good" });
     }
     return out.slice(0, 3);
-  }, [cur, prev, state.categories, state.goals]);
+  }, [cur, prev, state.categories, state.goals, heroValue, heroPrev]);
 
   const trend = useMemo(() => {
-    if (prev.remaining === 0) return 0;
-    return (cur.remaining - prev.remaining) / Math.abs(prev.remaining);
-  }, [cur, prev]);
+    if (heroPrev === 0) return 0;
+    return (heroValue - heroPrev) / Math.abs(heroPrev);
+  }, [heroValue, heroPrev]);
 
   return (
     <div className="space-y-6 md:space-y-8">
@@ -107,10 +107,10 @@ export default function Dashboard() {
         <div aria-hidden="true" className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
         <div aria-hidden="true" className="absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-white/5 blur-2xl" />
         <div className="relative">
-          <p className="text-sm uppercase tracking-wider opacity-80">Kvar att leva på</p>
+          <p className="text-sm uppercase tracking-wider opacity-80">Kvar att spendera den här månaden</p>
           <div className="mt-3 flex items-baseline gap-3 flex-wrap">
-            <span className="text-5xl md:text-6xl font-display font-extrabold tracking-tight">{sek(effectiveRemaining)}</span>
-            {prev.remaining !== 0 && (
+            <span className="text-5xl md:text-6xl font-display font-extrabold tracking-tight">{sek(heroValue)}</span>
+            {heroPrev !== 0 && (
               <span className={cn(
                 "inline-flex items-center gap-1 text-sm font-medium px-2.5 py-1 rounded-full",
                 trend >= 0 ? "bg-success/20 text-white" : "bg-destructive/20 text-white"
@@ -121,9 +121,11 @@ export default function Dashboard() {
             )}
           </div>
           <p className="mt-3 text-sm opacity-80 max-w-md">
-            {usingExpectedIncome
-              ? `Baserat på förväntad inkomst ${sek(effectiveIncome)} — lönen ej registrerad ännu.`
-              : `Av ${sek(cur.income)} i inkomster har ${sek(cur.expenses)} gått till utgifter.`}
+            {heroUsesPlan
+              ? `Planerad inkomst minus fasta utgifter, lån och sparande – minus ${sek(plan.actualVariable)} ni redan spenderat rörligt. Se uppdelningen i Månadsplan nedan.`
+              : usingExpectedIncome
+                ? `Baserat på förväntad inkomst ${sek(effectiveIncome)} — lönen ej registrerad ännu.`
+                : `Av ${sek(cur.income)} i inkomster har ${sek(cur.expenses)} gått till utgifter.`}
           </p>
         </div>
       </Card>
@@ -183,11 +185,12 @@ export default function Dashboard() {
       {/* Månadsplan */}
       {(plan.hasRecurring || plan.plannedLoans > 0 || plan.plannedSavings > 0) && (
         <Card className="p-5 md:p-6 rounded-2xl border-0 shadow-soft">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-1">
             <CalendarCheck className="h-4 w-4 text-primary" />
             <h2 className="font-display font-semibold">Månadsplan</h2>
             <span className="ml-auto text-xs text-muted-foreground capitalize">{periodLabel(today, state.settings.payDay ?? 1)}</span>
           </div>
+          <p className="text-xs text-muted-foreground mb-4">Så här räknas «Kvar att spendera» ovan fram.</p>
 
           <div className="space-y-3">
             {/* Inkomster */}
@@ -398,7 +401,7 @@ export default function Dashboard() {
                         ><Pencil className="h-3.5 w-3.5" /></Button>
                         <Button
                           variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          onClick={() => dispatch({ type: "DELETE_TX", id: t.id })}
+                          onClick={() => deleteTxWithUndo(t, dispatch)}
                           aria-label="Ta bort"
                         ><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>

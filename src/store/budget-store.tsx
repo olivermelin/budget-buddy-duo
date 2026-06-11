@@ -15,7 +15,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(new Error("Laddning tog för lång tid — kontrollera din anslutning")), 15_000);
 
-  const query = <T>(q: { abortSignal: (s: AbortSignal) => Promise<T> }) => q.abortSignal(controller.signal);
+  const query = <T,>(q: { abortSignal: (s: AbortSignal) => Promise<T> }) => q.abortSignal(controller.signal);
 
   let hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes;
   try {
@@ -32,6 +32,13 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     ]);
   } finally {
     clearTimeout(timeoutId);
+  }
+
+  // PostgREST-fel kastas inte av supabase-js — utan denna kontroll hydreras
+  // appen med tomma listor och felet syns aldrig (jfr databasdriften maj 2026).
+  for (const res of [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes]) {
+    const err = (res as { error: { message: string } | null }).error;
+    if (err) throw new Error(err.message);
   }
 
   const members = (mRes.data ?? []) as Record<string, unknown>[];
@@ -74,6 +81,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     isRecurring: (t.is_recurring ?? false) as boolean,
     isPrivate: (t.is_private ?? false) as boolean,
     ownerId: (t.owner_user_id ?? undefined) as string | undefined,
+    splitShares: (t.split_shares ?? undefined) as Record<string, number> | undefined,
   }));
 
   const mappedGoals: SavingsGoal[] = goals.map((g) => ({
@@ -128,6 +136,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     ownerId: (l.owner_user_id ?? null) as string | null,
     ownerShare: Number(l.owner_share ?? 100),
     icon: (l.icon ?? "💰") as string,
+    lastGeneratedMonth: (l.last_generated_month ?? null) as string | null,
     payments: ((l.loan_payments ?? []) as Record<string, unknown>[]).map((p) => ({
       id: p.id as string,
       date: p.date as string,
@@ -148,6 +157,7 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
     dayOfMonth: Number(r.day_of_month),
     isActive: Boolean(r.is_active),
     lastGeneratedMonth: (r.last_generated_month ?? null) as string | null,
+    skippedMonths: ((r.skipped_months ?? []) as string[]),
     isPrivate: (r.is_private ?? false) as boolean,
     ownerId: (r.owner_user_id ?? undefined) as string | undefined,
   }));
@@ -183,11 +193,19 @@ async function loadHouseholdData(householdId: string): Promise<AppState> {
 
 // ─── Supabase write-through (fire-and-forget) ─────────────────────────────────
 
+// supabase-js kastar INTE vid PostgREST-fel — utan denna kontroll försvinner
+// misslyckade skrivningar tyst (lokal state ser rätt ut tills nästa reload).
+// Kastet fångas i dispatch() som visar toast + "Försök igen" och laddar om.
+function ensureOk<T extends { error: { message: string } | null }>(res: T): T {
+  if (res.error) throw new Error(res.error.message);
+  return res;
+}
+
 async function writeToSupabase(action: Action, householdId: string, userId: string): Promise<void> {
   switch (action.type) {
     case "ADD_TX": {
       const tx = action.tx as Transaction;
-      await supabase.from("transactions").insert({
+      ensureOk(await supabase.from("transactions").insert({
         id: tx.id,
         household_id: householdId,
         date: tx.date,
@@ -200,7 +218,10 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         is_recurring: tx.isRecurring ?? false,
         is_private: tx.isPrivate ?? false,
         owner_user_id: tx.ownerId ?? userId,
-      });
+        // Nyckeln utelämnas när ingen anpassad split finns så att inserts
+        // fungerar även innan migration 0024 körts.
+        ...(tx.splitShares ? { split_shares: tx.splitShares } : {}),
+      }));
       return;
     }
     case "UPDATE_TX": {
@@ -208,7 +229,7 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       if (action.patch.date !== undefined) patch.date = action.patch.date;
       if (action.patch.amount !== undefined) patch.amount = action.patch.amount;
       if (action.patch.type !== undefined) patch.type = action.patch.type;
-      if (action.patch.categoryId !== undefined) patch.category_id = action.patch.categoryId;
+      if (action.patch.categoryId !== undefined) patch.category_id = action.patch.categoryId || null;
       if (action.patch.payerId !== undefined) patch.payer_user_id = action.patch.payerId;
       if (action.patch.description !== undefined) patch.description = action.patch.description;
       if (action.patch.receiverId !== undefined) patch.settlement_receiver_user_id = action.patch.receiverId || null;
@@ -219,15 +240,17 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         // Triggern enforce_private_owner sköter INSERT men inte clearning vid false.
         patch.owner_user_id = action.patch.isPrivate ? (action.patch.ownerId ?? userId) : null;
       }
+      // "in"-check (inte !== undefined): splitShares: undefined betyder "rensa anpassad split".
+      if ("splitShares" in action.patch) patch.split_shares = action.patch.splitShares ?? null;
       // Fynd 7: household_id som defence-in-depth vid sidan av RLS
-      await supabase.from("transactions").update(patch).eq("id", action.id).eq("household_id", householdId);
+      ensureOk(await supabase.from("transactions").update(patch).eq("id", action.id).eq("household_id", householdId));
       return;
     }
     case "DELETE_TX":
-      await supabase.from("transactions").delete().eq("id", action.id).eq("household_id", householdId);
+      ensureOk(await supabase.from("transactions").delete().eq("id", action.id).eq("household_id", householdId));
       return;
     case "UPSERT_CATEGORY":
-      await supabase.from("categories").upsert({
+      ensureOk(await supabase.from("categories").upsert({
         id: action.cat.id,
         household_id: householdId,
         name: action.cat.name,
@@ -236,20 +259,20 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         budget_monthly: action.cat.budget,
         is_fixed: action.cat.isFixed ?? false,
         is_income: action.cat.isIncome ?? false,
-      });
+      }));
       return;
     case "DELETE_CATEGORY":
-      await supabase.from("categories").delete().eq("id", action.id).eq("household_id", householdId);
+      ensureOk(await supabase.from("categories").delete().eq("id", action.id).eq("household_id", householdId));
       return;
     case "UPDATE_PERSON":
-      await supabase.from("household_members").update({
+      ensureOk(await supabase.from("household_members").update({
         ...(action.patch.name !== undefined && { display_name: action.patch.name }),
         ...(action.patch.income !== undefined && { income_monthly: action.patch.income }),
         ...(action.patch.color !== undefined && { person_color: action.patch.color }),
-      }).eq("user_id", action.id).eq("household_id", householdId);
+      }).eq("user_id", action.id).eq("household_id", householdId));
       return;
     case "UPSERT_GOAL":
-      await supabase.from("savings_goals").upsert({
+      ensureOk(await supabase.from("savings_goals").upsert({
         id: action.goal.id,
         household_id: householdId,
         name: action.goal.name,
@@ -259,31 +282,31 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         target_date: action.goal.targetDate ?? null,
         owner_id: action.goal.ownerId ?? null,
         monthly_contribution: action.goal.monthlyContribution ?? 0,
-      });
+      }));
       return;
     case "DELETE_GOAL":
-      await supabase.from("savings_goals").delete().eq("id", action.goalId).eq("household_id", householdId);
+      ensureOk(await supabase.from("savings_goals").delete().eq("id", action.goalId).eq("household_id", householdId));
       return;
     case "ADD_GOAL_CONTRIB":
-      await supabase.from("savings_contributions").insert({
+      ensureOk(await supabase.from("savings_contributions").insert({
         goal_id: action.goalId,
         user_id: action.personId || userId,
         amount: action.amount,
         date: new Date().toISOString().split("T")[0],
-      });
-      await supabase.rpc("increment_goal_saved", { gid: action.goalId, delta: action.amount });
+      }));
+      ensureOk(await supabase.rpc("increment_goal_saved", { gid: action.goalId, delta: action.amount }));
       return;
     case "ADD_GOAL_SNAPSHOT":
-      await supabase.from("savings_snapshots").insert({
+      ensureOk(await supabase.from("savings_snapshots").insert({
         goal_id: action.goalId,
         date: action.date,
         balance: action.balance,
         note: action.note,
-      });
-      await supabase.from("savings_goals").update({ saved: action.balance }).eq("id", action.goalId);
+      }));
+      ensureOk(await supabase.from("savings_goals").update({ saved: action.balance }).eq("id", action.goalId));
       return;
     case "DELETE_GOAL_SNAPSHOT":
-      await supabase.from("savings_snapshots").delete().eq("id", action.snapshotId);
+      ensureOk(await supabase.from("savings_snapshots").delete().eq("id", action.snapshotId));
       return;
     case "UPDATE_SETTINGS": {
       const patch: Record<string, unknown> = {};
@@ -291,19 +314,19 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       if (action.patch.splitMode !== undefined) patch.split_mode = action.patch.splitMode;
       if (action.patch.payDay !== undefined) patch.pay_day = action.patch.payDay;
       if (Object.keys(patch).length > 0) {
-        await supabase.from("households").update(patch).eq("id", householdId);
+        ensureOk(await supabase.from("households").update(patch).eq("id", householdId));
       }
       return;
     }
     case "SET_SUB_STATUS":
-      await supabase.from("subscription_overrides").upsert({
+      ensureOk(await supabase.from("subscription_overrides").upsert({
         household_id: householdId,
         transaction_id: action.key,
         is_active: action.status === "active",
-      }, { onConflict: "household_id,transaction_id" });
+      }, { onConflict: "household_id,transaction_id" }));
       return;
     case "UPSERT_RECURRING":
-      await supabase.from("recurring_transactions").upsert({
+      ensureOk(await supabase.from("recurring_transactions").upsert({
         id: action.rt.id,
         household_id: householdId,
         description: action.rt.description,
@@ -314,20 +337,38 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         day_of_month: action.rt.dayOfMonth,
         is_active: action.rt.isActive,
         last_generated_month: action.rt.lastGeneratedMonth ?? null,
+        skipped_months: action.rt.skippedMonths ?? [],
         is_private: action.rt.isPrivate ?? false,
         owner_user_id: action.rt.ownerId ?? userId,
-      });
+      }));
       return;
+    case "TOGGLE_RECURRING_SKIP": {
+      // stateRef är fortfarande pre-action — beräkna nytt värde med samma logik som reducern
+      const rt = stateRef.current.recurringTransactions.find(r => r.id === action.id);
+      const current = rt?.skippedMonths ?? [];
+      const newSkipped = action.skip
+        ? current.includes(action.monthKey) ? current : [...current, action.monthKey]
+        : current.filter(m => m !== action.monthKey);
+      ensureOk(await supabase.from("recurring_transactions")
+        .update({ skipped_months: newSkipped })
+        .eq("id", action.id));
+      return;
+    }
     case "DELETE_RECURRING":
-      await supabase.from("recurring_transactions").delete().eq("id", action.id).eq("household_id", householdId);
+      ensureOk(await supabase.from("recurring_transactions").delete().eq("id", action.id).eq("household_id", householdId));
       return;
     case "MARK_RECURRING_GENERATED":
-      await supabase.from("recurring_transactions")
+      ensureOk(await supabase.from("recurring_transactions")
         .update({ last_generated_month: action.month })
-        .eq("id", action.id);
+        .eq("id", action.id));
+      return;
+    case "MARK_LOAN_GENERATED":
+      ensureOk(await supabase.from("loans")
+        .update({ last_generated_month: action.month })
+        .eq("id", action.loanId));
       return;
     case "UPSERT_RULE":
-      await supabase.from("import_rules").upsert({
+      ensureOk(await supabase.from("import_rules").upsert({
         id: action.rule.id,
         household_id: householdId,
         pattern: action.rule.pattern,
@@ -336,13 +377,13 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         payer_user_id: action.rule.payerId,
         priority: action.rule.priority,
         is_private: action.rule.isPrivate ?? false,
-      });
+      }));
       return;
     case "DELETE_RULE":
-      await supabase.from("import_rules").delete().eq("id", action.id).eq("household_id", householdId);
+      ensureOk(await supabase.from("import_rules").delete().eq("id", action.id).eq("household_id", householdId));
       return;
     case "UPSERT_LOAN":
-      await supabase.from("loans").upsert({
+      ensureOk(await supabase.from("loans").upsert({
         id: action.loan.id,
         household_id: householdId,
         name: action.loan.name,
@@ -361,13 +402,13 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         owner_user_id: action.loan.ownerId ?? null,
         owner_share: action.loan.ownerShare,
         icon: action.loan.icon,
-      });
+      }));
       return;
     case "DELETE_LOAN":
-      await supabase.from("loans").delete().eq("id", action.id).eq("household_id", householdId);
+      ensureOk(await supabase.from("loans").delete().eq("id", action.id).eq("household_id", householdId));
       return;
     case "ADD_LOAN_PAYMENT":
-      await supabase.from("loan_payments").insert({
+      ensureOk(await supabase.from("loan_payments").insert({
         id: action.payment.id,
         loan_id: action.loanId,
         user_id: action.payment.personId || userId,
@@ -375,16 +416,16 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
         amount: action.payment.amount,
         is_extra: action.payment.isExtra,
         note: action.payment.note,
-      });
-      await supabase.rpc("decrement_loan_balance", { lid: action.loanId, delta: action.payment.amount });
+      }));
+      ensureOk(await supabase.rpc("decrement_loan_balance", { lid: action.loanId, delta: action.payment.amount }));
       return;
     case "CLEAR":
-      await Promise.all([
+      (await Promise.all([
         supabase.from("transactions").delete().eq("household_id", householdId),
         supabase.from("savings_goals").delete().eq("household_id", householdId),
         supabase.from("loans").delete().eq("household_id", householdId),
         supabase.from("subscription_overrides").delete().eq("household_id", householdId),
-      ]);
+      ])).forEach(ensureOk);
       return;
   }
 }
@@ -530,7 +571,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     const active = state.recurringTransactions.filter(r => r.isActive);
 
     for (const rt of active) {
-      const dates = monthsToGenerate(rt, today);
+      const dates = monthsToGenerate(rt, today).filter(d => !rt.skippedMonths?.includes(d.slice(0, 7)));
       if (dates.length === 0) continue;
 
       for (const date of dates) {
@@ -564,6 +605,38 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       const primaryPerson = state.persons[0];
       if (!primaryPerson) continue;
       dispatch({ type: "ADD_GOAL_CONTRIB", goalId: goal.id, amount: contrib, personId: primaryPerson.id });
+    }
+
+    // Auto-generera månatlig amortering för aktiva lån
+    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const primaryPerson = state.persons[0];
+    if (primaryPerson) {
+      for (const loan of state.loans) {
+        if (loan.currentBalance <= 0) continue;
+        if (loan.monthlyAmortization <= 0) continue;
+        if (loan.lastGeneratedMonth === currentMonthKey) continue;
+        // Hoppa över om startdatum är i framtiden
+        if (loan.startDate && loan.startDate.slice(0, 7) > currentMonthKey) continue;
+        // Hoppa över om betalning redan finns denna månad (manuell eller auto)
+        const alreadyPaid = loan.payments.some(p => p.date.slice(0, 7) === currentMonthKey);
+        if (alreadyPaid) {
+          dispatch({ type: "MARK_LOAN_GENERATED", loanId: loan.id, month: currentMonthKey });
+          continue;
+        }
+        dispatch({
+          type: "ADD_LOAN_PAYMENT",
+          loanId: loan.id,
+          payment: {
+            id: crypto.randomUUID(),
+            date: todayIso,
+            amount: loan.monthlyAmortization,
+            isExtra: false,
+            personId: primaryPerson.id,
+            note: "Auto-genererad",
+          },
+        });
+        dispatch({ type: "MARK_LOAN_GENERATED", loanId: loan.id, month: currentMonthKey });
+      }
     }
 
     generatingRef.current = false;

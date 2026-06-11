@@ -33,6 +33,11 @@ export interface Transaction {
   isRecurring?: boolean; // marker if user identifies as subscription
   isPrivate?: boolean;   // syns endast för ägaren, ingår inte i split
   ownerId?: string;      // user_id för ägaren (sätts på server för privata)
+  /**
+   * Anpassad fördelning för just denna utgift: personId → andel i procent (summerar till 100).
+   * Saknas fältet delas transaktionen enligt hushållets standardregler (splitMode).
+   */
+  splitShares?: Record<string, number>;
 }
 
 export interface SavingsGoal {
@@ -89,6 +94,7 @@ export interface Loan {
   ownerShare: number;         // % share if shared
   icon: string;
   payments: LoanPayment[];
+  lastGeneratedMonth?: string | null; // "YYYY-MM", senaste månaden amortering auto-genererats
 }
 
 export interface Settings {
@@ -120,6 +126,7 @@ export interface RecurringTransaction {
   dayOfMonth: number; // 1–31
   isActive: boolean;
   lastGeneratedMonth: string | null; // "YYYY-MM", null = aldrig genererad
+  skippedMonths?: string[];          // "YYYY-MM"-nycklar för månader som ska hoppas över
   isPrivate?: boolean;
   ownerId?: string;
 }

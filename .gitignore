@@ -24,6 +24,10 @@ dist-ssr
 # Claude Code – worktrees är lokala och ska inte committas
 .claude/worktrees/
 
+# Playwright
+playwright-report/
+test-results/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

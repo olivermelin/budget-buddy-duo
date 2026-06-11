@@ -61,9 +61,7 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
   const txs = state.transactions.filter(t => inMonth(t.date, year, month, payDay));
   let actualVariable = 0;
   let actualFixed = 0;
-  let settlementsOut = 0;
   for (const t of txs) {
-    if (t.type === "settlement") { settlementsOut += t.amount; continue; }
     if (t.type !== "expense") continue;
     if (!isShared(t)) continue;
     if (isFixedExpense(t, fixedCats)) actualFixed += t.amount;
@@ -73,7 +71,7 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
   const plannedLoans = state.loans.reduce((s, l) => s + l.monthlyPayment + (l.monthlyFee ?? 0), 0);
   const plannedSavings = state.goals.reduce((s, g) => s + (g.monthlyContribution ?? 0), 0);
   const plannedFreeToSpend = Math.max(0, plannedIncome - plannedFixed - plannedLoans - plannedSavings);
-  const remaining = plannedFreeToSpend - actualVariable - settlementsOut;
+  const remaining = plannedFreeToSpend - actualVariable;
   const spendPercent = plannedFreeToSpend > 0 ? actualVariable / plannedFreeToSpend : 0;
 
   return {
@@ -87,6 +85,45 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
     remaining,
     spendPercent,
     hasRecurring: state.recurringTransactions.some(r => r.isActive && isShared(r)),
+  };
+}
+
+// ─── Kvar att spendera — appens enda sanning ─────────────────────────────────
+// Alla vyer som visar "kvar att spendera" ska använda denna funktion så att
+// talet betyder samma sak överallt.
+//
+// Två lägen:
+//  - "plan":   det finns en månadsplan (återkommande poster, lån eller månads-
+//              sparande) → kvar = planerat fritt utrymme − rörliga utgifter hittills.
+//  - "actual": ingen plan → kvar = inkomst − utgifter. Saknas inkomst-
+//              transaktioner används personernas registrerade månadslöner.
+
+export interface RemainingToSpend {
+  value: number;
+  model: "plan" | "actual";
+  plan: MonthPlan;
+  /** true när inga inkomsttransaktioner finns och registrerade löner används istället */
+  expectedIncomeUsed: boolean;
+  /** effektiv inkomst (faktisk, eller förväntad när expectedIncomeUsed) */
+  income: number;
+  /** faktiska delade utgifter under perioden */
+  expenses: number;
+}
+
+export function calcRemainingToSpend(state: AppState, year: number, month: number): RemainingToSpend {
+  const plan = buildMonthPlan(state, year, month);
+  const usePlan = plan.hasRecurring || plan.plannedLoans > 0 || plan.plannedSavings > 0;
+  const summary = summarizeMonth(state, year, month);
+  const totalPersonIncome = state.persons.reduce((s, p) => s + p.income, 0);
+  const expectedIncomeUsed = summary.income === 0 && totalPersonIncome > 0;
+  const income = expectedIncomeUsed ? totalPersonIncome : summary.income;
+  return {
+    value: usePlan ? plan.remaining : income - summary.expenses,
+    model: usePlan ? "plan" : "actual",
+    plan,
+    expectedIncomeUsed,
+    income,
+    expenses: summary.expenses,
   };
 }
 
@@ -140,7 +177,7 @@ function buildFixedCatIds(state: AppState): Set<string> {
 //  2. den är auto-genererad från en återkommande mall (isRecurring: true)
 // Inte hela kategorin — annars klassas t.ex. matinköp i "Mat & Hushåll" som fasta
 // bara för att Billån råkar ligga i samma kategori.
-const isFixedExpense = (t: { categoryId?: string; isRecurring?: boolean }, fixedCats: Set<string>) =>
+export const isFixedExpense = (t: { categoryId?: string; isRecurring?: boolean }, fixedCats: Set<string>) =>
   fixedCats.has(t.categoryId ?? "") || !!t.isRecurring;
 
 export function summarizeMonth(state: AppState, year: number, month: number): MonthSummary {
@@ -157,15 +194,20 @@ export function summarizeMonth(state: AppState, year: number, month: number): Mo
       if (isShared(t)) income += t.amount;
       continue;
     }
+    if (t.type !== "expense") continue;
     if (isShared(t)) {
       if (isFixedExpense(t, fixedCats)) fixed += t.amount;
       else variable += t.amount;
-      byCategory[t.categoryId] = (byCategory[t.categoryId] || 0) + t.amount;
+      if (t.categoryId) {
+        byCategory[t.categoryId] = (byCategory[t.categoryId] || 0) + t.amount;
+      }
       byPerson[t.payerId] = (byPerson[t.payerId] || 0) + t.amount;
     } else {
       if (isFixedExpense(t, fixedCats)) personalFixed += t.amount;
       else personalVariable += t.amount;
-      personalByCategory[t.categoryId] = (personalByCategory[t.categoryId] || 0) + t.amount;
+      if (t.categoryId) {
+        personalByCategory[t.categoryId] = (personalByCategory[t.categoryId] || 0) + t.amount;
+      }
     }
   }
   const expenses = fixed + variable;
@@ -234,6 +276,34 @@ export interface Settlement {
   amount: number;
 }
 
+// Transaktioner med giltig anpassad fördelning (splitShares) delas enligt sina
+// egna procentandelar istället för hushållets standardregler.
+const hasCustomSplit = (t: { splitShares?: Record<string, number> }): boolean => {
+  if (!t.splitShares) return false;
+  let sum = 0;
+  for (const v of Object.values(t.splitShares)) sum += v;
+  return sum > 0;
+};
+
+// Fördelar en transaktions belopp enligt dess splitShares (normaliserar om
+// andelarna inte summerar till exakt 100).
+function allocateCustom(
+  txs: { amount: number; splitShares?: Record<string, number> }[],
+  persons: AppState["persons"],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const p of persons) out[p.id] = 0;
+  for (const t of txs) {
+    const shares = t.splitShares!;
+    const sum = Object.values(shares).reduce((s, v) => s + v, 0);
+    if (sum <= 0) continue;
+    for (const p of persons) {
+      out[p.id] += t.amount * ((shares[p.id] ?? 0) / sum);
+    }
+  }
+  return out;
+}
+
 function buildSettlements(diff: Record<string, number>, persons: AppState["persons"]): Settlement[] {
   const creditors = persons
     .map(p => ({ id: p.id, amount: diff[p.id] ?? 0 }))
@@ -264,9 +334,13 @@ export function calcCumulativeSplit(state: AppState) {
 
   if (persons.length === 0) return { diff: {} as Record<string, number>, settlements: [] as Settlement[] };
 
-  const fixedTotal = txs.filter(t => isFixedExpense(t, fixedCats)).reduce((s, t) => s + t.amount, 0);
-  const variableTotal = txs.filter(t => !isFixedExpense(t, fixedCats)).reduce((s, t) => s + t.amount, 0);
-  const total = fixedTotal + variableTotal;
+  // Transaktioner med anpassad fördelning hanteras separat från standardreglerna.
+  const customTxs = txs.filter(hasCustomSplit);
+  const standardTxs = txs.filter(t => !hasCustomSplit(t));
+
+  const fixedTotal = standardTxs.filter(t => isFixedExpense(t, fixedCats)).reduce((s, t) => s + t.amount, 0);
+  const variableTotal = standardTxs.filter(t => !isFixedExpense(t, fixedCats)).reduce((s, t) => s + t.amount, 0);
+  const standardTotal = fixedTotal + variableTotal;
 
   const paid: Record<string, number> = {};
   for (const p of persons) paid[p.id] = 0;
@@ -274,25 +348,27 @@ export function calcCumulativeSplit(state: AppState) {
     if (paid[t.payerId] !== undefined) paid[t.payerId] += t.amount;
   }
 
-  // Fasta: inkomstbaserat eller lika. Rörliga: alltid lika.
+  // Fasta: inkomstbaserat eller lika. Rörliga: alltid lika. Anpassade: enligt splitShares.
   const equalVariable = variableTotal / persons.length;
+  const customShare = allocateCustom(customTxs, persons);
   const share: Record<string, number> = {};
   if (state.settings.splitMode === "50/50") {
-    for (const p of persons) share[p.id] = total / persons.length;
+    for (const p of persons) share[p.id] = standardTotal / persons.length + customShare[p.id];
   } else {
     const totalIncome = persons.reduce((s, p) => s + p.income, 0) || 1;
     for (const p of persons) {
-      share[p.id] = fixedTotal * (p.income / totalIncome) + equalVariable;
+      share[p.id] = fixedTotal * (p.income / totalIncome) + equalVariable + customShare[p.id];
     }
   }
 
   const diff: Record<string, number> = {};
   for (const p of persons) diff[p.id] = (paid[p.id] ?? 0) - share[p.id];
 
+  const personIds = new Set(persons.map(p => p.id));
   for (const s of state.transactions.filter(t => t.type === "settlement")) {
-    if (s.payerId && s.receiverId) {
-      diff[s.payerId] = (diff[s.payerId] ?? 0) + s.amount;
-      diff[s.receiverId] = (diff[s.receiverId] ?? 0) - s.amount;
+    if (s.payerId && s.receiverId && personIds.has(s.payerId) && personIds.has(s.receiverId)) {
+      diff[s.payerId] += s.amount;
+      diff[s.receiverId] -= s.amount;
     }
   }
 
@@ -306,12 +382,17 @@ export function calcSplit(state: AppState, year: number, month: number) {
   const txs = state.transactions.filter(t => t.type === "expense" && isShared(t) && inMonth(t.date, year, month, payDay));
   const persons = state.persons;
 
-  const fixedTxs = txs.filter(t => isFixedExpense(t, fixedCats));
-  const variableTxs = txs.filter(t => !isFixedExpense(t, fixedCats));
+  // Transaktioner med anpassad fördelning delas enligt sina egna andelar.
+  const customTxs = txs.filter(hasCustomSplit);
+  const standardTxs = txs.filter(t => !hasCustomSplit(t));
+
+  const fixedTxs = standardTxs.filter(t => isFixedExpense(t, fixedCats));
+  const variableTxs = standardTxs.filter(t => !isFixedExpense(t, fixedCats));
 
   const fixedTotal = fixedTxs.reduce((s, t) => s + t.amount, 0);
   const variableTotal = variableTxs.reduce((s, t) => s + t.amount, 0);
-  const total = fixedTotal + variableTotal;
+  const customTotal = customTxs.reduce((s, t) => s + t.amount, 0);
+  const total = fixedTotal + variableTotal + customTotal;
 
   const paid: Record<string, number> = {};
   for (const p of persons) paid[p.id] = 0;
@@ -321,14 +402,16 @@ export function calcSplit(state: AppState, year: number, month: number) {
 
   const fixedShare: Record<string, number> = {};
   const variableShare: Record<string, number> = {};
+  const customShare: Record<string, number> = {};
   const share: Record<string, number> = {};
 
   if (persons.length === 0) {
-    return { total, fixedTotal, variableTotal, paid, fixedShare, variableShare, share, diff: {}, settlements: [] as Settlement[] };
+    return { total, fixedTotal, variableTotal, customTotal, paid, fixedShare, variableShare, customShare, share, diff: {}, settlements: [] as Settlement[] };
   }
 
   // Fasta: delas enligt valt läge (lika eller inkomstbaserat)
   // Rörliga: delas alltid lika (50/50) — dagligvaror och vardagsutgifter ska inte viktas mot lön
+  // Anpassade: delas enligt transaktionens splitShares
   const equalVariable = variableTotal / persons.length;
   if (state.settings.splitMode === "50/50") {
     const equalFixed = fixedTotal / persons.length;
@@ -341,7 +424,11 @@ export function calcSplit(state: AppState, year: number, month: number) {
     }
   }
 
-  for (const p of persons) share[p.id] = fixedShare[p.id] + variableShare[p.id];
+  const allocated = allocateCustom(customTxs, persons);
+  for (const p of persons) {
+    customShare[p.id] = allocated[p.id];
+    share[p.id] = fixedShare[p.id] + variableShare[p.id] + customShare[p.id];
+  }
 
   // Diff: positive = ligger ute med pengar (har betalat mer än sin andel)
   const diff: Record<string, number> = {};
@@ -358,5 +445,5 @@ export function calcSplit(state: AppState, year: number, month: number) {
     }
   }
 
-  return { total, fixedTotal, variableTotal, paid, fixedShare, variableShare, share, diff, settlements: buildSettlements(diff, persons) };
+  return { total, fixedTotal, variableTotal, customTotal, paid, fixedShare, variableShare, customShare, share, diff, settlements: buildSettlements(diff, persons) };
 }

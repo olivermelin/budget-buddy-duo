@@ -12,21 +12,23 @@ import { NotificationCenter } from "@/components/NotificationCenter";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
-const nav = [
+// Primär navigation: de fyra ytor man använder dagligen/veckovis.
+// Allt annat (sparmål, lån, statistik, inställningar) ligger under "Mer".
+const primaryNav = [
   { to: "/", label: "Översikt", icon: LayoutDashboard, end: true },
-  { to: "/budget", label: "Budget", icon: PiggyBank },
   { to: "/transactions", label: "Transaktioner", icon: Receipt },
-  { to: "/couple", label: "Fördelning", icon: Users },
-  { to: "/goals", label: "Sparmål", icon: Target },
-  { to: "/loans", label: "Lån", icon: Landmark },
-  { to: "/statistics", label: "Statistik", icon: BarChart3 },
-  { to: "/settings", label: "Inställningar", icon: Settings },
+  { to: "/budget", label: "Planera", icon: PiggyBank, end: false },
+  { to: "/couple", label: "Fördelning", icon: Users, end: false },
 ];
 
-// Mobile bottom nav: keep 4 most-used items visible, rest in a "Mer"-overflow
-const PRIMARY_PATHS = ["/", "/transactions", "/goals", "/couple"];
-const primaryNav = nav.filter(n => PRIMARY_PATHS.includes(n.to));
-const overflowNav = nav.filter(n => !PRIMARY_PATHS.includes(n.to));
+const overflowNav = [
+  { to: "/goals", label: "Sparmål", icon: Target, end: false },
+  { to: "/loans", label: "Lån", icon: Landmark, end: false },
+  { to: "/statistics", label: "Statistik", icon: BarChart3, end: false },
+  { to: "/settings", label: "Inställningar", icon: Settings, end: false },
+];
+
+const nav = [...primaryNav, ...overflowNav];
 
 export function AppShell() {
   const [open, setOpen] = useState(false);
@@ -72,7 +74,20 @@ export function AppShell() {
         </div>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          {nav.map(item => (
+          {primaryNav.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+              activeClassName="!bg-primary !text-primary-foreground shadow-soft"
+            >
+              <item.icon className="h-4 w-4" />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+          <div className="pt-4 pb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Mer</div>
+          {overflowNav.map(item => (
             <NavLink
               key={item.to}
               to={item.to}

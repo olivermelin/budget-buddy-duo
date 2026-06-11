@@ -14,6 +14,7 @@ import { exportTransactionsPDF, exportTransactionsXLSX } from "@/lib/export";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Transaction } from "@/types/budget";
+import { deleteTxWithUndo } from "@/lib/tx-actions";
 
 export default function Transactions() {
   const { state, dispatch } = useBudget();
@@ -25,7 +26,6 @@ export default function Transactions() {
   const [person, setPerson] = useState<string>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const months = useMemo(() => {
     const set = new Set<string>();
@@ -223,7 +223,7 @@ export default function Transactions() {
                 <Button
                   variant="ghost" size="icon"
                   className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  onClick={() => setPendingDeleteId(t.id)}
+                  onClick={() => deleteTxWithUndo(t, dispatch)}
                   aria-label={`Ta bort ${t.description}`}
                 >
                   <Trash2 className="h-4 w-4" />
@@ -278,31 +278,6 @@ export default function Transactions() {
           </div>
         </div>
       )}
-
-      <AlertDialog open={!!pendingDeleteId} onOpenChange={v => !v && setPendingDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Ta bort transaktion?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {state.transactions.find(t => t.id === pendingDeleteId)?.description ?? "Transaktionen"} tas bort permanent och kan inte återställas.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Avbryt</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (!pendingDeleteId) return;
-                dispatch({ type: "DELETE_TX", id: pendingDeleteId });
-                toast.success("Transaktion borttagen");
-                setPendingDeleteId(null);
-              }}
-            >
-              Ta bort
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>

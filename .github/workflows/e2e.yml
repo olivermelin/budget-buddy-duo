@@ -1,0 +1,41 @@
+name: E2E-tester
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      # Alla Supabase-anrop interceptas av Playwright — värdena behöver inte vara riktiga.
+      # Sätt dessa som GitHub Secrets (Settings → Secrets and variables → Actions).
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installera beroenden
+        run: npm ci --legacy-peer-deps
+
+      - name: Installera Playwright-webbläsare
+        run: npx playwright install --with-deps chromium
+
+      - name: Kör E2E-tester
+        run: npm run test:e2e
+
+      - name: Ladda upp testrapport vid fel
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-rapport
+          path: playwright-report/
+          retention-days: 7
