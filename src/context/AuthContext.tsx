@@ -17,6 +17,7 @@ type AuthContextValue = {
   refreshHousehold: () => Promise<void>;
   switchHousehold: (id: string) => void;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -105,6 +106,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  // Magic link: skickar en inloggningslänk via e-post. Nya användare skapas automatiskt.
+  const signInWithEmail = async (email: string) => {
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    });
+    return { error: error?.message ?? null };
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
@@ -121,6 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshHousehold,
         switchHousehold,
         signInWithGoogle,
+        signInWithEmail,
         signOut,
       }}
     >

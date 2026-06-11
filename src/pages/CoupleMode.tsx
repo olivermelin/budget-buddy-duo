@@ -5,7 +5,7 @@ import { calcSplit, calcCumulativeSplit, inMonth, isFixedExpense, Settlement } f
 import { sek, monthLabel, periodLabel, pct, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, ArrowRight, Home, Receipt, Lock, AlertTriangle, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowRight, Home, Receipt, Lock, AlertTriangle, Trash2, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TransactionModal } from "@/components/TransactionModal";
@@ -45,7 +45,7 @@ export default function CoupleMode() {
   }, [breakdown, state.transactions, monthDate, fixedCatIds]);
 
   const totalIncome = state.persons.reduce((s, p) => s + p.income, 0);
-  const totalExpenses = split.fixedTotal + split.variableTotal;
+  const totalExpenses = split.total;
 
   // Historik över registrerade avstämningar (settlement-transaktioner), senaste först.
   const settlementHistory = useMemo(
@@ -241,6 +241,7 @@ export default function CoupleMode() {
               const diff = split.diff[p.id] ?? 0;
               const fixedShare = split.fixedShare[p.id] ?? 0;
               const variableShare = split.variableShare[p.id] ?? 0;
+              const customShare = split.customShare[p.id] ?? 0;
               const fixedPct = state.settings.splitMode === "50/50"
                 ? 1 / Math.max(1, state.persons.length)
                 : totalIncome > 0 ? p.income / totalIncome : 0;
@@ -307,6 +308,15 @@ export default function CoupleMode() {
                         </span>
                         <span className="font-medium tabular-nums">{sek(variableShare)}</span>
                       </div>
+                      {split.customTotal > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground flex items-center gap-1.5">
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                            Anpassad fördelning
+                          </span>
+                          <span className="font-medium tabular-nums">{sek(customShare)}</span>
+                        </div>
+                      )}
                       <div className="border-t border-border/50 pt-3 flex items-center justify-between font-semibold">
                         <span>Total andel</span>
                         <span className="tabular-nums">{sek(share)}</span>

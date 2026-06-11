@@ -18,7 +18,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { MonthPicker } from "@/components/MonthPicker";
-import { MortgageCalculator } from "@/components/MortgageCalculator";
 import { ExtraAmortizationSimulator } from "@/components/ExtraAmortizationSimulator";
 
 const LOAN_TYPE_LABEL: Record<LoanType, string> = {
@@ -158,8 +157,7 @@ export default function Loans() {
       <Tabs defaultValue="loans" className="space-y-6">
         <TabsList className="rounded-xl">
           <TabsTrigger value="loans" className="rounded-lg">Mina lån</TabsTrigger>
-          <TabsTrigger value="calculator" className="rounded-lg">🏠 Bostadskalkyl</TabsTrigger>
-          <TabsTrigger value="simulator" className="rounded-lg">📊 Amorteringssimulator</TabsTrigger>
+          <TabsTrigger value="simulator" className="rounded-lg">Simulera</TabsTrigger>
         </TabsList>
 
         <TabsContent value="loans" className="space-y-6 mt-0">
@@ -415,45 +413,44 @@ export default function Loans() {
             })}
           </div>
 
-          {/* Rate shock simulator */}
-          <Card className="p-6 rounded-2xl border-0 shadow-soft">
-            <div className="flex items-center gap-2 mb-1">
-              <AlertTriangle className="h-4 w-4 text-warning" />
-              <h2 className="font-display font-semibold">Ränteshock-simulator</h2>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">Vad händer med er månadskostnad om räntan ändras?</p>
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex-1 min-w-[200px]">
-                <Slider
-                  value={[shockRate ?? 4]}
-                  min={0}
-                  max={10}
-                  step={0.25}
-                  onValueChange={(v) => setShockRate(v[0])}
-                />
-                <div className="text-xs text-muted-foreground mt-2">Ny ränta: <span className="font-semibold text-foreground">{(shockRate ?? 4).toFixed(2)}%</span></div>
-              </div>
-              {shockImpact && (
-                <div className="text-right">
-                  <div className="text-xs text-muted-foreground">Ny månadskostnad</div>
-                  <div className="font-display font-bold text-2xl tabular-nums">{sek(shockImpact.newMonthly)}</div>
-                  <div className={cn("text-xs font-medium", shockImpact.diff >= 0 ? "text-destructive" : "text-success")}>
-                    {shockImpact.diff >= 0 ? "+" : "−"}{sek(Math.abs(shockImpact.diff))} / mån
-                  </div>
-                </div>
-              )}
-            </div>
-          </Card>
         </>
       )}
         </TabsContent>
 
-        <TabsContent value="calculator" className="mt-0">
-          <MortgageCalculator />
-        </TabsContent>
-
-        <TabsContent value="simulator" className="mt-0">
+        <TabsContent value="simulator" className="mt-0 space-y-6">
           <ExtraAmortizationSimulator loans={visibleLoans} />
+
+          {/* Ränteshock — vad händer med totala månadskostnaden om räntan ändras? */}
+          {visibleLoans.length > 0 && (
+            <Card className="p-6 rounded-2xl border-0 shadow-soft">
+              <div className="flex items-center gap-2 mb-1">
+                <AlertTriangle className="h-4 w-4 text-warning" />
+                <h2 className="font-display font-semibold">Ränteshock</h2>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">Vad händer med er totala månadskostnad (alla lån) om räntan ändras?</p>
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex-1 min-w-[200px]">
+                  <Slider
+                    value={[shockRate ?? 4]}
+                    min={0}
+                    max={10}
+                    step={0.25}
+                    onValueChange={(v) => setShockRate(v[0])}
+                  />
+                  <div className="text-xs text-muted-foreground mt-2">Ny ränta: <span className="font-semibold text-foreground">{(shockRate ?? 4).toFixed(2)}%</span></div>
+                </div>
+                {shockImpact && (
+                  <div className="text-right">
+                    <div className="text-xs text-muted-foreground">Ny månadskostnad</div>
+                    <div className="font-display font-bold text-2xl tabular-nums">{sek(shockImpact.newMonthly)}</div>
+                    <div className={cn("text-xs font-medium", shockImpact.diff >= 0 ? "text-destructive" : "text-success")}>
+                      {shockImpact.diff >= 0 ? "+" : "−"}{sek(Math.abs(shockImpact.diff))} / mån
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -521,23 +518,6 @@ function Kpi({ label, value, icon, tone }: { label: string; value: string; icon:
       <div className="mt-2 text-xl md:text-2xl font-display font-bold tabular-nums">{value}</div>
     </Card>
   );
-}
-
-function Stat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
-  return (
-    <div className="rounded-xl bg-muted/40 p-2.5">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={cn("text-sm font-semibold tabular-nums mt-0.5 truncate", warn && "text-destructive")}>{value}</div>
-    </div>
-  );
-}
-
-// Beräkna månadsbetalning (annuitet) givet saldo, årsränta och antal månader kvar
-function calcMonthlyPayment(balance: number, annualRate: number, months: number): number {
-  if (months <= 0 || balance <= 0) return 0;
-  const r = annualRate / 100 / 12;
-  if (r === 0) return balance / months;
-  return balance * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1);
 }
 
 function LoanFormDialog({

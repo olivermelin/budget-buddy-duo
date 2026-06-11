@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { RecurringTransaction } from "@/types/budget";
 import { NumericInput } from "@/components/ui/numeric-input";
+import { SubscriptionsPanel } from "@/components/SubscriptionsPanel";
 
 const ICONS = ["🛒", "🏠", "🚗", "🎬", "🛍️", "📱", "✈️", "✨", "🍽️", "💪", "📚", "🐾", "💊", "🎁"];
 
@@ -41,7 +42,43 @@ const SUGGESTED_CATEGORIES: SuggestedCategory[] = [
 // Match by first significant word so "Mat & Hushåll" blocks "Mat & Dagligvaror"
 const normKey = (name: string) => name.toLowerCase().split(/[\s&,]/)[0].trim();
 
+type PlanTab = "budget" | "prenumerationer";
+
 export default function Budget() {
+  const [tab, setTab] = useState<PlanTab>("budget");
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl md:text-4xl font-display font-bold">Planera</h1>
+        <p className="text-sm text-muted-foreground mt-1">Budget, återkommande poster och prenumerationer.</p>
+      </div>
+
+      <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit">
+        {([
+          { id: "budget", label: "Budget" },
+          { id: "prenumerationer", label: "Prenumerationer" },
+        ] as { id: PlanTab; label: string }[]).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "px-4 py-1.5 rounded-lg text-sm font-medium transition",
+              tab === t.id ? "bg-card shadow-soft" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "budget" && <BudgetTab />}
+      {tab === "prenumerationer" && <SubscriptionsPanel />}
+    </div>
+  );
+}
+
+function BudgetTab() {
   const { state } = useBudget();
   const [offset, setOffset] = useState(0);
   const ref = new Date();
@@ -68,11 +105,7 @@ export default function Budget() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-display font-bold">Budget</h1>
-          <p className="text-sm text-muted-foreground mt-1">Följ och planera era utgifter månadsvis.</p>
-        </div>
+      <div className="flex items-center justify-end">
         <div className="flex items-center gap-1 bg-card rounded-xl border p-1 shadow-soft">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setOffset(o => o - 1)}><ChevronLeft className="h-4 w-4" /></Button>
           <span className="text-sm font-medium px-2 min-w-[140px] text-center capitalize">{monthLabel(monthDate)}</span>

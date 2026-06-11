@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
-import { lastNMonths, summarizeMonth, buildMonthPlan, inMonth } from "@/lib/analytics";
+import { summarizeMonth, calcRemainingToSpend, inMonth } from "@/lib/analytics";
 import { sek, pct, monthLabel, periodLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,25 +22,16 @@ export default function Dashboard() {
   const cur = useMemo(() => summarizeMonth(state, today.getFullYear(), today.getMonth()), [state]);
   const prevDate = useMemo(() => new Date(today.getFullYear(), today.getMonth() - 1, 1), []);
   const prev = useMemo(() => summarizeMonth(state, prevDate.getFullYear(), prevDate.getMonth()), [state]);
-  const plan = useMemo(() => buildMonthPlan(state, today.getFullYear(), today.getMonth()), [state]);
 
-  // Om inga faktiska inkomsttransaktioner finns ännu denna månad (t.ex. lönen har inte kommit),
-  // använd summan av personernas registrerade månadslöner som förväntad inkomst.
-  const totalPersonIncome = useMemo(
-    () => state.persons.reduce((s, p) => s + p.income, 0),
-    [state.persons],
-  );
-  const usingExpectedIncome = cur.income === 0 && totalPersonIncome > 0;
-  const effectiveIncome = usingExpectedIncome ? totalPersonIncome : cur.income;
-  const effectiveRemaining = effectiveIncome - cur.expenses;
-
-  // Ett enda "kvar att spendera"-tal: finns en aktiv månadsplan (återkommande poster, lån
-  // eller månadssparande) styr planmodellen — planerat fritt minus rörliga utgifter hittills.
-  // Annars faller vi tillbaka på faktisk inkomst minus faktiska utgifter.
-  const planPrev = useMemo(() => buildMonthPlan(state, prevDate.getFullYear(), prevDate.getMonth()), [state, prevDate]);
-  const heroUsesPlan = plan.hasRecurring || plan.plannedLoans > 0 || plan.plannedSavings > 0;
-  const heroValue = heroUsesPlan ? plan.remaining : effectiveRemaining;
-  const heroPrev = heroUsesPlan ? planPrev.remaining : prev.remaining;
+  // "Kvar att spendera" beräknas centralt i calcRemainingToSpend — samma tal i hela appen.
+  const rem = useMemo(() => calcRemainingToSpend(state, today.getFullYear(), today.getMonth()), [state]);
+  const remPrev = useMemo(() => calcRemainingToSpend(state, prevDate.getFullYear(), prevDate.getMonth()), [state, prevDate]);
+  const plan = rem.plan;
+  const heroUsesPlan = rem.model === "plan";
+  const heroValue = rem.value;
+  const heroPrev = remPrev.value;
+  const usingExpectedIncome = rem.expectedIncomeUsed;
+  const effectiveIncome = rem.income;
 
   const recent = useMemo(() => state.transactions.slice(0, 5), [state.transactions]);
   const catMap = useMemo(() => Object.fromEntries(state.categories.map(c => [c.id, c])), [state.categories]);

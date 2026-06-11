@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Wallet, TrendingUp, Users, Shield } from "lucide-react";
+import { Wallet, TrendingUp, Users, Shield, Mail, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
 
 const features = [
@@ -11,12 +12,33 @@ const features = [
 ];
 
 export default function Login() {
-  const { session, signInWithGoogle } = useAuth();
+  const { session, signInWithGoogle, signInWithEmail } = useAuth();
   const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   useEffect(() => {
     if (session) navigate("/", { replace: true });
   }, [session, navigate]);
+
+  const sendMagicLink = async () => {
+    const addr = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) {
+      setEmailError("Ange en giltig e-postadress");
+      setEmailStatus("error");
+      return;
+    }
+    setEmailStatus("sending");
+    setEmailError(null);
+    const { error } = await signInWithEmail(addr);
+    if (error) {
+      setEmailError(error);
+      setEmailStatus("error");
+    } else {
+      setEmailStatus("sent");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-soft flex flex-col">
@@ -72,6 +94,60 @@ export default function Login() {
               </svg>
               Fortsätt med Google
             </Button>
+
+            {/* Avdelare */}
+            <div className="flex items-center gap-3" aria-hidden="true">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground">eller</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
+            {/* E-post / magic link */}
+            {emailStatus === "sent" ? (
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-success/10 text-sm" role="status">
+                <CheckCircle2 className="h-4 w-4 text-success shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">Kolla din inkorg!</p>
+                  <p className="text-muted-foreground text-xs mt-0.5">
+                    Vi har skickat en inloggningslänk till <span className="font-medium text-foreground">{email.trim()}</span>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setEmailStatus("idle")}
+                    className="text-xs underline text-muted-foreground hover:text-foreground mt-1.5"
+                  >
+                    Skicka igen
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form
+                className="space-y-2"
+                onSubmit={e => { e.preventDefault(); sendMagicLink(); }}
+              >
+                <Input
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); if (emailStatus === "error") setEmailStatus("idle"); }}
+                  placeholder="din@epost.se"
+                  aria-label="E-postadress"
+                  className="h-12 rounded-xl"
+                />
+                {emailStatus === "error" && emailError && (
+                  <p className="text-xs text-destructive" role="alert">{emailError}</p>
+                )}
+                <Button
+                  type="submit"
+                  disabled={emailStatus === "sending"}
+                  className="w-full h-12 rounded-xl bg-gradient-primary font-medium flex items-center gap-2"
+                >
+                  <Mail className="h-4 w-4" />
+                  {emailStatus === "sending" ? "Skickar…" : "Skicka inloggningslänk"}
+                </Button>
+              </form>
+            )}
 
             <p className="text-center text-xs text-muted-foreground">
               Genom att logga in godkänner du våra{" "}

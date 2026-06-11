@@ -1,0 +1,17 @@
+{
+  "name": "BudgetBuddy – Smart hushållsekonomi för par",
+  "short_name": "BudgetBuddy",
+  "description": "Budget, sparmål och rättvis fördelning för par – allt på svenska.",
+  "lang": "sv",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#172340",
+  "theme_color": "#172340",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
