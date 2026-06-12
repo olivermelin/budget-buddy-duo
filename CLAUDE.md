@@ -12,8 +12,10 @@ Budgetapp för par och hushåll med svensk UI. React 18 + TypeScript + Vite + Su
 npm run dev              # starta dev-server (port 8080)
 npm run build            # produktionsbygg
 npm run lint             # ESLint
+npm run typecheck        # TypeScript-kontroll (tsc --noEmit) — bygget typkontrollerar INTE
 npm run test             # kör alla tester (Vitest, run-läge)
 npm run test:watch       # kör tester i watch-läge
+npm run test:e2e         # Playwright e2e (kräver npx playwright install chromium först)
 npx vitest run src/test/foo.test.ts   # kör ett enskilt testfil
 ```
 

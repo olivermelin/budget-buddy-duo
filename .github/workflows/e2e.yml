@@ -1,4 +1,4 @@
-name: E2E-tester
+name: Tester
 
 on:
   push:
@@ -24,7 +24,13 @@ jobs:
           cache: npm
 
       - name: Installera beroenden
-        run: npm ci --legacy-peer-deps
+        run: npm ci
+
+      - name: Typkontroll
+        run: npm run typecheck
+
+      - name: Enhetstester
+        run: npm test
 
       - name: Installera Playwright-webbläsare
         run: npx playwright install --with-deps chromium
