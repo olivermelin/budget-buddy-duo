@@ -41,8 +41,8 @@ export default function Dashboard() {
 
   const breakdownTxs = useMemo(() => {
     if (!breakdown) return [];
-    const isFixed = (t: { categoryId: string; isRecurring?: boolean }) =>
-      fixedCatIds.has(t.categoryId) || !!t.isRecurring;
+    const isFixed = (t: { categoryId?: string; isRecurring?: boolean }) =>
+      fixedCatIds.has(t.categoryId ?? "") || !!t.isRecurring;
     return state.transactions.filter(t =>
       t.type === "expense" &&
       inMonth(t.date, today.getFullYear(), today.getMonth(), state.settings.payDay ?? 1) &&

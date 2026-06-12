@@ -313,7 +313,7 @@ describe("calcSplit", () => {
     // Fasta utgifter delas inkomstbaserat; rörliga alltid 50/50.
     // Här testas enbart fasta (isFixed: true) för att verifiera income-split.
     const state = makeState({
-      settings: { householdName: "Test", splitMode: "income", theme: "system" },
+      settings: { householdName: "Test", splitMode: "income", theme: "system", payDay: 1 },
       persons: [
         makePerson({ id: "p-1", income: 30000 }),
         makePerson({ id: "p-2", income: 10000 }),
@@ -334,7 +334,7 @@ describe("calcSplit", () => {
 
   it("delar alltid rörliga utgifter 50/50 oavsett split-läge", () => {
     const state = makeState({
-      settings: { householdName: "Test", splitMode: "income", theme: "system" },
+      settings: { householdName: "Test", splitMode: "income", theme: "system", payDay: 1 },
       persons: [
         makePerson({ id: "p-1", income: 30000 }),
         makePerson({ id: "p-2", income: 10000 }),

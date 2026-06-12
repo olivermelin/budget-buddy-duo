@@ -14,21 +14,20 @@ const STORAGE_KEY = "budgetbuddy.v1";
 async function loadHouseholdData(householdId: string): Promise<AppState> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(new Error("Laddning tog för lång tid — kontrollera din anslutning")), 15_000);
-
-  const query = <T,>(q: { abortSignal: (s: AbortSignal) => Promise<T> }) => q.abortSignal(controller.signal);
+  const signal = controller.signal;
 
   let hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes;
   try {
     [hRes, mRes, catRes, txRes, goalRes, overRes, loanRes, recurRes, ruleRes] = await Promise.all([
-      query(supabase.from("households").select("*").eq("id", householdId).single()),
-      query(supabase.from("household_members").select("*").eq("household_id", householdId)),
-      query(supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order")),
-      query(supabase.from("transactions").select("*").eq("household_id", householdId).order("date", { ascending: false })),
-      query(supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId)),
-      query(supabase.from("subscription_overrides").select("*").eq("household_id", householdId)),
-      query(supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId)),
-      query(supabase.from("recurring_transactions").select("*").eq("household_id", householdId)),
-      query(supabase.from("import_rules").select("*").eq("household_id", householdId).order("priority", { ascending: false })),
+      supabase.from("households").select("*").eq("id", householdId).abortSignal(signal).single(),
+      supabase.from("household_members").select("*").eq("household_id", householdId).abortSignal(signal),
+      supabase.from("categories").select("*").eq("household_id", householdId).order("sort_order").abortSignal(signal),
+      supabase.from("transactions").select("*").eq("household_id", householdId).order("date", { ascending: false }).abortSignal(signal),
+      supabase.from("savings_goals").select("*, savings_contributions(*), savings_snapshots(*)").eq("household_id", householdId).abortSignal(signal),
+      supabase.from("subscription_overrides").select("*").eq("household_id", householdId).abortSignal(signal),
+      supabase.from("loans").select("*, loan_payments(*)").eq("household_id", householdId).abortSignal(signal),
+      supabase.from("recurring_transactions").select("*").eq("household_id", householdId).abortSignal(signal),
+      supabase.from("import_rules").select("*").eq("household_id", householdId).order("priority", { ascending: false }).abortSignal(signal),
     ]);
   } finally {
     clearTimeout(timeoutId);
@@ -201,7 +200,7 @@ function ensureOk<T extends { error: { message: string } | null }>(res: T): T {
   return res;
 }
 
-async function writeToSupabase(action: Action, householdId: string, userId: string): Promise<void> {
+export async function writeToSupabase(action: Action, householdId: string, userId: string, preState: AppState): Promise<void> {
   switch (action.type) {
     case "ADD_TX": {
       const tx = action.tx as Transaction;
@@ -343,8 +342,8 @@ async function writeToSupabase(action: Action, householdId: string, userId: stri
       }));
       return;
     case "TOGGLE_RECURRING_SKIP": {
-      // stateRef är fortfarande pre-action — beräkna nytt värde med samma logik som reducern
-      const rt = stateRef.current.recurringTransactions.find(r => r.id === action.id);
+      // preState är tillståndet före action — beräkna nytt värde med samma logik som reducern
+      const rt = preState.recurringTransactions.find(r => r.id === action.id);
       const current = rt?.skippedMonths ?? [];
       const newSkipped = action.skip
         ? current.includes(action.monthKey) ? current : [...current, action.monthKey]
@@ -698,7 +697,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       const hid = householdIdRef.current;
       const uid = userRef.current;
       if (hid && uid) {
-        writeToSupabase(incomeSync, hid, uid).catch((err) => {
+        writeToSupabase(incomeSync, hid, uid, stateRef.current).catch((err) => {
           console.error("[BudgetStore] Income sync failed:", err);
           Sentry.captureException(err);
         });
@@ -708,7 +707,7 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     const hid = householdIdRef.current;
     const uid = userRef.current;
     if (hid && uid) {
-      writeToSupabase(processed, hid, uid).catch((err) => {
+      writeToSupabase(processed, hid, uid, stateRef.current).catch((err) => {
         console.error("[BudgetStore] Supabase write failed:", err);
         Sentry.captureException(err);
         const isOffline = !navigator.onLine;

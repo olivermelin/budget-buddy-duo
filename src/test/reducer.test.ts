@@ -325,7 +325,7 @@ describe("Budget reducer", () => {
     it("ersätter hela state med den angivna", () => {
       const state = makeState({ transactions: [makeTx()] });
       const newState = makeState({
-        settings: { householdName: "Ny familj", splitMode: "income", theme: "dark" },
+        settings: { householdName: "Ny familj", splitMode: "income", theme: "dark", payDay: 1 },
         persons: [makePerson()],
       });
       const result = reducer(state, { type: "HYDRATE", state: newState });

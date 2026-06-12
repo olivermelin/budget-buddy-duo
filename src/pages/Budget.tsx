@@ -430,7 +430,8 @@ function RecurringEditor() {
 
   const openEdit = (rt: RecurringTransaction) => {
     setEditing(rt);
-    setType(rt.type);
+    // Återkommande är aldrig settlement; fall tillbaka på expense om typen breddas.
+    setType(rt.type === "income" ? "income" : "expense");
     setDescription(rt.description);
     setAmount(rt.amount);
     setCategoryId(rt.categoryId);
