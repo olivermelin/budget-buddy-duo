@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil, X, Tag, UserCog, Lock, ArrowRightLeft } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
 import { cn } from "@/lib/utils";
@@ -278,20 +278,13 @@ export default function Transactions() {
         </div>
       )}
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Ta bort {selected.size} transaktioner?</AlertDialogTitle>
-            <AlertDialogDescription>Detta går inte att ångra.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Avbryt</AlertDialogCancel>
-            <AlertDialogAction onClick={bulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Ta bort
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Ta bort ${selected.size} transaktioner?`}
+        description="Detta går inte att ångra."
+        onConfirm={bulkDelete}
+      />
 
       <TransactionModal open={open} onOpenChange={setOpen} />
       <TransactionModal

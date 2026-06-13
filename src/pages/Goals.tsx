@@ -5,7 +5,7 @@ import { sek, pct, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
@@ -256,30 +256,18 @@ export default function Goals() {
       <ContribDialog goal={contribFor} onClose={() => setContribFor(null)} />
       <SnapshotDialog goal={snapshotFor} onClose={() => setSnapshotFor(null)} />
 
-      <AlertDialog open={!!deleteGoalId} onOpenChange={open => { if (!open) setDeleteGoalId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Ta bort sparmål?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Alla bidrag och saldohistorik för detta mål raderas permanent och kan inte återställas.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Avbryt</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (!deleteGoalId) return;
-                dispatch({ type: "DELETE_GOAL", goalId: deleteGoalId });
-                toast.success("Mål borttaget");
-                setDeleteGoalId(null);
-              }}
-            >
-              Ta bort
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={!!deleteGoalId}
+        onOpenChange={open => { if (!open) setDeleteGoalId(null); }}
+        title="Ta bort sparmål?"
+        description="Alla bidrag och saldohistorik för detta mål raderas permanent och kan inte återställas."
+        onConfirm={() => {
+          if (!deleteGoalId) return;
+          dispatch({ type: "DELETE_GOAL", goalId: deleteGoalId });
+          toast.success("Mål borttaget");
+          setDeleteGoalId(null);
+        }}
+      />
     </div>
   );
 }

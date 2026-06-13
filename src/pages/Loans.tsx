@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Plus, Trash2, TrendingDown, AlertTriangle, Banknote, Calendar, Sparkles, Repeat } from "lucide-react";
@@ -484,21 +484,13 @@ export default function Loans() {
         }}
       />
 
-      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Ta bort lån?</AlertDialogTitle>
-            <AlertDialogDescription>Lånet och alla amorteringar tas bort permanent.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Avbryt</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground"
-              onClick={() => { if (deleteId) dispatch({ type: "DELETE_LOAN", id: deleteId }); setDeleteId(null); }}
-            >Ta bort</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(o) => !o && setDeleteId(null)}
+        title="Ta bort lån?"
+        description="Lånet och alla amorteringar tas bort permanent."
+        onConfirm={() => { if (deleteId) dispatch({ type: "DELETE_LOAN", id: deleteId }); setDeleteId(null); }}
+      />
     </div>
   );
 }
