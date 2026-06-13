@@ -10,12 +10,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertCircle, ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Lock, Sparkles, CalendarOff } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Pencil, Lock, Sparkles, CalendarOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { RecurringTransaction } from "@/types/budget";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { SubscriptionsPanel } from "@/components/SubscriptionsPanel";
+import { MonthNavigator } from "@/components/MonthNavigator";
+import { useMonthNavigator } from "@/hooks/useMonthNavigator";
 
 const ICONS = ["🛒", "🏠", "🚗", "🎬", "🛍️", "📱", "✈️", "✨", "🍽️", "💪", "📚", "🐾", "💊", "🎁"];
 
@@ -80,9 +82,7 @@ export default function Budget() {
 
 function BudgetTab() {
   const { state } = useBudget();
-  const [offset, setOffset] = useState(0);
-  const ref = new Date();
-  const monthDate = new Date(ref.getFullYear(), ref.getMonth() + offset, 1);
+  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator();
   const summary = useMemo(() => summarizeMonth(state, monthDate.getFullYear(), monthDate.getMonth()), [state, offset]);
   const effectiveBudgets = useMemo(() => computeEffectiveBudgets(state), [state]);
   const [drillId, setDrillId] = useState<string | null>(null);
@@ -106,11 +106,7 @@ function BudgetTab() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end">
-        <div className="flex items-center gap-1 bg-card rounded-xl border p-1 shadow-soft">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setOffset(o => o - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-          <span className="text-sm font-medium px-2 min-w-[140px] text-center capitalize">{monthLabel(monthDate)}</span>
-          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={offset >= 0} onClick={() => setOffset(o => o + 1)}><ChevronRight className="h-4 w-4" /></Button>
-        </div>
+        <MonthNavigator label={monthLabel(monthDate)} onPrev={prev} onNext={next} canGoNext={canGoNext} />
       </div>
 
       <Card className="p-6 rounded-2xl shadow-soft border-0 bg-gradient-primary text-white">

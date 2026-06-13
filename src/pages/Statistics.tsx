@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MonthNavigator } from "@/components/MonthNavigator";
+import { useMonthNavigator } from "@/hooks/useMonthNavigator";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, BarChart, Bar, Legend, AreaChart, Area,
@@ -61,9 +63,8 @@ type PieFilter = "all" | "shared" | "private";
 function DiagramTab() {
   const { state } = useBudget();
   const today = new Date();
-  const [offset, setOffset] = useState(0);
+  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator();
   const [pieFilter, setPieFilter] = useState<PieFilter>("all");
-  const monthDate = new Date(today.getFullYear(), today.getMonth() + offset, 1);
   const sixMonths = useMemo(() => lastNMonths(state, 6, today), [state]);
   const monthSummary = useMemo(() => summarizeMonth(state, monthDate.getFullYear(), monthDate.getMonth()), [state, offset]);
 
@@ -114,11 +115,7 @@ function DiagramTab() {
         <Card className="p-5 md:p-6 rounded-2xl shadow-soft border-0">
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <h2 className="font-display font-semibold">Kategorifördelning</h2>
-            <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOffset(o => o - 1)}><ChevronLeft className="h-3 w-3" /></Button>
-              <span className="text-xs font-medium px-2 min-w-[110px] text-center capitalize">{monthLabel(monthDate)}</span>
-              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={offset >= 0} onClick={() => setOffset(o => o + 1)}><ChevronRight className="h-3 w-3" /></Button>
-            </div>
+            <MonthNavigator label={monthLabel(monthDate)} onPrev={prev} onNext={next} canGoNext={canGoNext} size="sm" />
           </div>
 
           {hasPrivate && (

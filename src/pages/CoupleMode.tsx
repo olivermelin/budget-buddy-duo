@@ -5,19 +5,19 @@ import { calcSplit, calcCumulativeSplit, inMonth, isFixedExpense, Settlement } f
 import { sek, monthLabel, periodLabel, pct, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, ArrowRight, Home, Receipt, Lock, AlertTriangle, Trash2, SlidersHorizontal } from "lucide-react";
+import { ArrowRight, Home, Receipt, Lock, AlertTriangle, Trash2, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TransactionModal } from "@/components/TransactionModal";
 import { deleteTxWithUndo } from "@/lib/tx-actions";
+import { MonthNavigator } from "@/components/MonthNavigator";
+import { useMonthNavigator } from "@/hooks/useMonthNavigator";
 
 export default function CoupleMode() {
   const { state, dispatch } = useBudget();
-  const [offset, setOffset] = useState(0);
+  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator();
   const [selectedSettlement, setSelectedSettlement] = useState<Settlement | null>(null);
   const [breakdown, setBreakdown] = useState<"fixed" | "variable" | null>(null);
-  const ref = new Date();
-  const monthDate = new Date(ref.getFullYear(), ref.getMonth() + offset, 1);
   const split = useMemo(() => calcSplit(state, monthDate.getFullYear(), monthDate.getMonth()), [state, offset]);
   const cumulative = useMemo(() => calcCumulativeSplit(state), [state]);
 
@@ -76,15 +76,7 @@ export default function CoupleMode() {
           <h1 className="text-3xl md:text-4xl font-display font-bold">Hushållets fördelning</h1>
           <p className="text-sm text-muted-foreground mt-1">Rättvis fördelning av era utgifter.</p>
         </div>
-        <div className="flex items-center gap-1 bg-card rounded-xl border p-1 shadow-soft">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setOffset(o => o - 1)} aria-label="Föregående månad">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm font-medium px-3 min-w-[140px] text-center capitalize">{periodLabel(monthDate, state.settings.payDay ?? 1)}</span>
-          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={offset >= 0} onClick={() => setOffset(o => o + 1)} aria-label="Nästa månad">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
+        <MonthNavigator label={periodLabel(monthDate, state.settings.payDay ?? 1)} onPrev={prev} onNext={next} canGoNext={canGoNext} />
       </div>
 
       {state.settings.splitMode === "income" && state.persons.some(p => p.income === 0) && (
