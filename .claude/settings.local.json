@@ -7,7 +7,9 @@
       "PowerShell(git add \"C:\\\\Projekt\\\\budget-buddy-duo\\\\.claude\\\\worktrees\\\\competent-shirley-29922d\\\\src\\\\pages\\\\Loans.tsx\")",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "PowerShell(npm run typecheck 2>&1 | Select-Object -Last 2; \"== tsc: $LASTEXITCODE\"; npm run build 2>&1 | Select-String -Pattern 'dist/assets|built in|error' | Select-Object -First 40)",
+      "PowerShell(git add -A)"
     ]
   },
   "prefersReducedMotion": false

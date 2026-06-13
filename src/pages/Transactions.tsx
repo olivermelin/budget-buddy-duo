@@ -10,7 +10,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Download, Plus, Search, Trash2, FileSpreadsheet, FileText, Pencil, X, Tag, UserCog, Lock, ArrowRightLeft } from "lucide-react";
 import { TransactionModal } from "@/components/TransactionModal";
-import { exportTransactionsPDF, exportTransactionsXLSX } from "@/lib/export";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Transaction } from "@/types/budget";
@@ -108,10 +107,10 @@ export default function Transactions() {
               <Button variant="outline" className="rounded-xl"><Download className="h-4 w-4" /> Exportera</Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => { exportTransactionsXLSX({ transactions: filtered, categories: state.categories, persons: state.persons }); toast.success("Excel exporterad"); }}>
+              <DropdownMenuItem onClick={async () => { const { exportTransactionsXLSX } = await import("@/lib/export"); exportTransactionsXLSX({ transactions: filtered, categories: state.categories, persons: state.persons }); toast.success("Excel exporterad"); }}>
                 <FileSpreadsheet className="h-4 w-4" /> Excel (.xlsx)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { exportTransactionsPDF({ transactions: filtered, categories: state.categories, persons: state.persons }); toast.success("PDF exporterad"); }}>
+              <DropdownMenuItem onClick={async () => { const { exportTransactionsPDF } = await import("@/lib/export"); exportTransactionsPDF({ transactions: filtered, categories: state.categories, persons: state.persons }); toast.success("PDF exporterad"); }}>
                 <FileText className="h-4 w-4" /> PDF
               </DropdownMenuItem>
             </DropdownMenuContent>

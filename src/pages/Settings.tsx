@@ -1,5 +1,4 @@
 import { useState, useMemo, useRef } from "react";
-import { exportTransactionsXLSX, exportTransactionsPDF } from "@/lib/export";
 import { useBudget } from "@/store/budget-store";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -124,14 +123,20 @@ export default function Settings() {
           <Button
             variant="outline"
             className="rounded-xl"
-            onClick={() => exportTransactionsXLSX({ transactions: state.transactions, categories: state.categories, persons: state.persons })}
+            onClick={async () => {
+              const { exportTransactionsXLSX } = await import("@/lib/export");
+              exportTransactionsXLSX({ transactions: state.transactions, categories: state.categories, persons: state.persons });
+            }}
           >
             <FileText className="h-4 w-4" /> Exportera XLSX
           </Button>
           <Button
             variant="outline"
             className="rounded-xl"
-            onClick={() => exportTransactionsPDF({ transactions: state.transactions, categories: state.categories, persons: state.persons })}
+            onClick={async () => {
+              const { exportTransactionsPDF } = await import("@/lib/export");
+              exportTransactionsPDF({ transactions: state.transactions, categories: state.categories, persons: state.persons });
+            }}
           >
             <Download className="h-4 w-4" /> Exportera PDF
           </Button>
