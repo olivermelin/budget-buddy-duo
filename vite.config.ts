@@ -16,6 +16,12 @@ export default defineConfig(() => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
-    dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
+    dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
+  },
+  optimizeDeps: {
+    // Sidorna laddas lazy (React.lazy), så Vite skulle annars upptäcka deras
+    // beroenden (recharts, radix m.fl.) först vid navigering och köra om-optimering
+    // + omladdning mitt i sessionen. Crawla alla källfiler vid start i stället.
+    entries: ["index.html", "src/**/*.{ts,tsx}"],
   },
 }));
