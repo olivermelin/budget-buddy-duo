@@ -11,9 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Alla Supabase-anrop interceptas av Playwright — värdena behöver inte vara riktiga.
-      # Sätt dessa som GitHub Secrets (Settings → Secrets and variables → Actions).
-      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      # Faller tillbaka på stub-värden så CI är grönt även utan konfigurerade secrets.
+      # (supabase.ts kastar om dessa saknas, vilket annars ger vit skärm och e2e-fail.)
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://stub.supabase.co' }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'stub-anon-key-for-e2e' }}
 
     steps:
       - uses: actions/checkout@v4
