@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
 import { useAuth } from "@/context/AuthContext";
-import { summarizeMonth, computeEffectiveBudgets } from "@/lib/analytics";
+import { summarizeMonth, computeEffectiveBudgets, inMonth } from "@/lib/analytics";
 import { sek, pct, monthLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -95,10 +95,7 @@ function BudgetTab() {
   const drillTxs = drillCat
     ? state.transactions
         .filter(t => t.type === "expense" && t.categoryId === drillCat.id && !t.isPrivate)
-        .filter(t => {
-          const [y, m] = t.date.split("-").map(Number);
-          return y === monthDate.getFullYear() && m - 1 === monthDate.getMonth();
-        })
+        .filter(t => inMonth(t.date, monthDate.getFullYear(), monthDate.getMonth(), state.settings.payDay ?? 1))
         .sort((a, b) => b.date.localeCompare(a.date))
     : [];
   const personMap = Object.fromEntries(state.persons.map(p => [p.id, p]));
