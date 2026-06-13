@@ -336,7 +336,7 @@ export default function Dashboard() {
         <Card className="rounded-2xl shadow-soft overflow-hidden divide-y divide-border">
           {recent.length === 0 && <div className="p-6 text-sm text-muted-foreground">Inga transaktioner än.</div>}
           {recent.map(t => {
-            const c = catMap[t.categoryId];
+            const c = catMap[t.categoryId ?? ""];
             const p = personMap[t.payerId];
             return (
               <div key={t.id} className="flex items-center gap-3 p-4 hover:bg-muted/40 transition">
@@ -380,7 +380,7 @@ export default function Dashboard() {
             ) : (
               <div className="divide-y divide-border">
                 {breakdownTxs.map(t => {
-                  const c = catMap[t.categoryId];
+                  const c = catMap[t.categoryId ?? ""];
                   const p = personMap[t.payerId];
                   return (
                     <div key={t.id} className="flex items-center gap-3 py-3">

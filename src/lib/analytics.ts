@@ -260,7 +260,7 @@ export function detectSubscriptions(state: AppState): Subscription[] {
       id: key,
       description: txs[0].description,
       amount: Math.round(txs[0].amount),
-      categoryId: txs[0].categoryId,
+      categoryId: txs[0].categoryId ?? "",
       occurrences: months.size,
       lastDate: sorted[0].date,
       status: effectiveStatus,

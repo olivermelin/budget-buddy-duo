@@ -22,7 +22,7 @@ const enrich = ({ transactions, categories, persons }: ExportInput) => {
   return transactions.map(t => ({
     Datum: parseLocalDate(t.date).toLocaleDateString("sv-SE"),
     Beskrivning: t.description,
-    Kategori: cm[t.categoryId] ?? t.categoryId,
+    Kategori: cm[t.categoryId ?? ""] ?? t.categoryId ?? "",
     Betalare: pm[t.payerId] ?? t.payerId,
     Typ: t.type === "income" ? "Inkomst" : "Utgift",
     Belopp: t.type === "income" ? t.amount : -t.amount,

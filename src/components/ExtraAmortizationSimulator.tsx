@@ -145,7 +145,7 @@ function monthDiff(a: number | null, b: number | null): string {
   if (diff <= 0) return "Ingen skillnad";
   const yrs = Math.floor(diff / 12);
   const mo = diff % 12;
-  const parts = [];
+  const parts: string[] = [];
   if (yrs > 0) parts.push(`${yrs} år`);
   if (mo > 0) parts.push(`${mo} mån`);
   return parts.join(" ");
