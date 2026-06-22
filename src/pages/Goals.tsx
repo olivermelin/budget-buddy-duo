@@ -151,6 +151,7 @@ export default function Goals() {
                 </div>
                 <Button
                   variant="ghost" size="icon"
+                  aria-label={`Ta bort ${g.name}`}
                   className="text-muted-foreground hover:text-destructive h-8 w-8"
                   onClick={() => setDeleteGoalId(g.id)}
                 >
@@ -296,7 +297,7 @@ function CreateGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     dispatch({
       type: "UPSERT_GOAL",
       goal: {
-        id: Math.random().toString(36).slice(2, 10),
+        id: crypto.randomUUID(),
         name: name.trim(), icon, target: t, saved: 0,
         targetDate: date ? new Date(date).toISOString() : undefined,
         ownerId,

@@ -257,7 +257,7 @@ function CategoriesEditor() {
   const save = () => {
     if (!name.trim()) { toast.error("Ange ett namn"); return; }
     dispatch({ type: "UPSERT_CATEGORY", cat: {
-      id: editing?.id ?? Math.random().toString(36).slice(2, 8),
+      id: editing?.id ?? crypto.randomUUID(),
       name: name.trim(),
       icon,
       color: editing?.color ?? `${Math.floor(Math.random() * 360)} 70% 50%`,

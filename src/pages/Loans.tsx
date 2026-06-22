@@ -276,8 +276,8 @@ export default function Loans() {
                       </div>
                     </div>
                     <div className="flex gap-0.5 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => { setEditing(l); setCreateOpen(true); }}>✎</Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(l.id)}><Trash2 className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" aria-label={`Redigera ${l.name}`} className="h-8 w-8 text-muted-foreground" onClick={() => { setEditing(l); setCreateOpen(true); }}>✎</Button>
+                      <Button variant="ghost" size="icon" aria-label={`Ta bort ${l.name}`} className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(l.id)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </div>
 

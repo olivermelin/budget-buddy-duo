@@ -223,9 +223,9 @@ function ArTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-1 bg-card rounded-xl border p-1 shadow-soft w-fit">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setYear(y => y - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" aria-label="Föregående år" className="h-8 w-8" onClick={() => setYear(y => y - 1)}><ChevronLeft className="h-4 w-4" /></Button>
         <span className="text-sm font-bold px-3">{year}</span>
-        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={year >= new Date().getFullYear()} onClick={() => setYear(y => y + 1)}><ChevronRight className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" aria-label="Nästa år" className="h-8 w-8" disabled={year >= new Date().getFullYear()} onClick={() => setYear(y => y + 1)}><ChevronRight className="h-4 w-4" /></Button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

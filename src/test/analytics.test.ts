@@ -77,6 +77,19 @@ describe("inMonth", () => {
   it("hanterar första dagen i månaden", () => {
     expect(inMonth("2026-05-01", 2026, 4)).toBe(true);
   });
+
+  it("matchar löneperiod när payDay > 1 (25 apr–24 maj för maj)", () => {
+    expect(inMonth("2026-04-25", 2026, 4, 25)).toBe(true);  // periodens start
+    expect(inMonth("2026-05-24", 2026, 4, 25)).toBe(true);  // periodens slut
+    expect(inMonth("2026-05-25", 2026, 4, 25)).toBe(false); // tillhör nästa period
+  });
+
+  it("dubbelräknar inte gränsdagar när payDay överstiger antal dagar i månaden", () => {
+    // payDay=31 i februari: utan clamp blir periodslutet 2 mars och drar in
+    // marsdagar i februariperioden. payDay ska clampas till max 28.
+    expect(inMonth("2026-03-01", 2026, 1, 31)).toBe(false); // INTE februari (month=1)
+    expect(inMonth("2026-03-01", 2026, 2, 31)).toBe(true);  // tillhör mars (month=2)
+  });
 });
 
 // ─── summarizeMonth ─────────────────────────────────────────────────────────
@@ -407,6 +420,22 @@ describe("calcSplit", () => {
     expect(result.settlements).toHaveLength(1);
     expect(result.settlements[0].amount).toBe(500); // bara halva 1000 — inget extra från privata
   });
+
+  it("delar fasta utgifter lika när total inkomst är 0 i inkomstläge", () => {
+    // Nytt hushåll utan ifyllda löner men splitMode "income": fasta utgifter ska
+    // falla tillbaka på lika fördelning, inte försvinna (vikt 0 för alla).
+    const state = makeState({
+      settings: { householdName: "Test", splitMode: "income", theme: "system", payDay: 1 },
+      persons: [makePerson({ id: "p-1", income: 0 }), makePerson({ id: "p-2", name: "Bo", income: 0 })],
+      categories: [makeCategory({ id: "rent", name: "Hyra", isFixed: true })],
+      transactions: [
+        makeTx({ date: "2026-03-10", amount: 10000, type: "expense", payerId: "p-1", categoryId: "rent" }),
+      ],
+    });
+    const result = calcSplit(state, 2026, 2);
+    expect(result.fixedShare["p-1"]).toBe(5000);
+    expect(result.fixedShare["p-2"]).toBe(5000);
+  });
 });
 
 describe("calcSplit — anpassad fördelning (splitShares)", () => {
@@ -530,6 +559,25 @@ describe("calcRemainingToSpend", () => {
     });
     const rem = calcRemainingToSpend(state, 2026, 2);
     expect(rem.model).toBe("plan");
+  });
+
+  it("använder faktisk/registrerad inkomst i plan-läge när återkommande inkomst saknas", () => {
+    // Par med bolån (→ plan-läge) men lön registrerad på personen, ingen inkomstmall.
+    // "Kvar att spendera" får INTE bli 0 bara för att plannedIncome från mallar är 0.
+    const state = makeState({
+      persons: [makePerson({ id: "p-1", income: 40000 })],
+      categories: [makeCategory({ id: "cat-1" })],
+      loans: [{
+        id: "l-1", name: "Bolån", type: "mortgage", lender: "", originalAmount: 2000000,
+        currentBalance: 1800000, interestRate: 3.5, monthlyPayment: 8000,
+        monthlyAmortization: 3000, monthlyFee: 0, ownerShare: 50, icon: "🏠", payments: [],
+      }],
+      transactions: [makeTx({ date: "2026-03-15", amount: 3000, type: "expense", categoryId: "cat-1" })],
+    });
+    const rem = calcRemainingToSpend(state, 2026, 2);
+    expect(rem.model).toBe("plan");
+    // inkomstbas 40000 − lån 8000 = 32000 planerat fritt; rörligt 3000 → 29000
+    expect(rem.value).toBe(29000);
   });
 });
 
