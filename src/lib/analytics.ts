@@ -32,7 +32,7 @@ export function computeEffectiveBudgets(state: AppState): Record<string, number>
 // ─── Månadsplan baserad på återkommande mallar ────────────────────────────────
 
 export interface MonthPlan {
-  plannedIncome: number;        // Summa aktiva återkommande inkomster
+  plannedIncome: number;        // Summa aktiva återkommande inkomster (fallback: faktisk/registrerad inkomst om inga mallar)
   plannedFixed: number;         // Summa aktiva återkommande fasta utgifter
   plannedLoans: number;         // Summa lånkostnader (monthlyPayment + monthlyFee)
   plannedSavings: number;       // Summa månadsparande från sparmål
@@ -61,11 +61,21 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
   const txs = state.transactions.filter(t => inMonth(t.date, year, month, payDay));
   let actualVariable = 0;
   let actualFixed = 0;
+  let actualIncome = 0;
   for (const t of txs) {
+    if (t.type === "income") { if (isShared(t)) actualIncome += t.amount; continue; }
     if (t.type !== "expense") continue;
     if (!isShared(t)) continue;
     if (isFixedExpense(t, fixedCats)) actualFixed += t.amount;
     else actualVariable += t.amount;
+  }
+
+  // Inkomstbas: om inga återkommande inkomster modellerats, använd faktisk inkomst denna
+  // period, annars registrerad löneinkomst — annars blir "kvar att spendera" 0 trots verklig lön.
+  if (plannedIncome === 0) {
+    plannedIncome = actualIncome > 0
+      ? actualIncome
+      : state.persons.reduce((s, p) => s + p.income, 0);
   }
 
   const plannedLoans = state.loans.reduce((s, l) => s + l.monthlyPayment + (l.monthlyFee ?? 0), 0);
@@ -133,14 +143,17 @@ export function calcRemainingToSpend(state: AppState, year: number, month: numbe
 // Exempel: payDay=25, månad=maj (month=4) → 25 apr – 24 maj.
 export const inMonth = (iso: string, year: number, month: number, payDay = 1): boolean => {
   const [y, m, d] = iso.split("-").map(Number);
-  if (payDay <= 1) {
+  // Clampa till 1–28 så löneperioden aldrig spiller över månadsgränsen och
+  // dubbelräknar gränsdagar (t.ex. payDay=31 i februari → 2 mars utan clamp).
+  const pd = Math.min(Math.max(Math.trunc(payDay), 1), 28);
+  if (pd <= 1) {
     // Kalendermånad — parsar direkt för att undvika UTC-midnatt-skift.
     return y === year && m - 1 === month;
   }
   // Löneperiod: from = föregående månad dag payDay, to = denna månad dag payDay-1
   const txDate = new Date(y, m - 1, d);
-  const start = new Date(year, month - 1, payDay);
-  const end = new Date(year, month, payDay - 1);
+  const start = new Date(year, month - 1, pd);
+  const end = new Date(year, month, pd - 1);
   return txDate >= start && txDate <= end;
 };
 
@@ -355,9 +368,11 @@ export function calcCumulativeSplit(state: AppState) {
   if (state.settings.splitMode === "50/50") {
     for (const p of persons) share[p.id] = standardTotal / persons.length + customShare[p.id];
   } else {
-    const totalIncome = persons.reduce((s, p) => s + p.income, 0) || 1;
+    const totalIncome = persons.reduce((s, p) => s + p.income, 0);
+    const equalFixed = fixedTotal / persons.length;
     for (const p of persons) {
-      share[p.id] = fixedTotal * (p.income / totalIncome) + equalVariable + customShare[p.id];
+      const fixedPart = totalIncome > 0 ? fixedTotal * (p.income / totalIncome) : equalFixed;
+      share[p.id] = fixedPart + equalVariable + customShare[p.id];
     }
   }
 
@@ -417,9 +432,12 @@ export function calcSplit(state: AppState, year: number, month: number) {
     const equalFixed = fixedTotal / persons.length;
     for (const p of persons) { fixedShare[p.id] = equalFixed; variableShare[p.id] = equalVariable; }
   } else {
-    const totalIncome = persons.reduce((s, p) => s + p.income, 0) || 1;
+    const totalIncome = persons.reduce((s, p) => s + p.income, 0);
+    // Utan inkomstdata faller fasta utgifter tillbaka på lika fördelning i stället
+    // för att försvinna (vikt 0 för alla).
+    const equalFixed = fixedTotal / persons.length;
     for (const p of persons) {
-      fixedShare[p.id] = fixedTotal * (p.income / totalIncome);
+      fixedShare[p.id] = totalIncome > 0 ? fixedTotal * (p.income / totalIncome) : equalFixed;
       variableShare[p.id] = equalVariable;
     }
   }

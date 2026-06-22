@@ -28,7 +28,6 @@ export type Action =
   | { type: "TOGGLE_RECURRING_SKIP"; id: string; monthKey: string; skip: boolean }
   | { type: "UPSERT_RULE"; rule: ImportRule }
   | { type: "DELETE_RULE"; id: string }
-  | { type: "RESET" }
   | { type: "CLEAR" }
   | { type: "HYDRATE"; state: AppState };
 
@@ -149,7 +148,6 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "DELETE_RULE":
       return { ...state, importRules: state.importRules.filter(r => r.id !== action.id) };
-    case "RESET":
     case "CLEAR":
       return { ...state, transactions: [], goals: [], loans: [], subscriptionOverrides: {} };
     case "HYDRATE":

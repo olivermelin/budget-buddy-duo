@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { Sentry } from "@/lib/sentry";
 import { useAuth } from "@/context/AuthContext";
 import { reducer, Action } from "@/store/reducer";
+import { computeIncomeSyncs } from "@/store/income-sync";
 
 const STORAGE_KEY = "budgetbuddy.v1";
 
@@ -500,15 +501,23 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const reloadInProgress = useRef(false);
+  const reloadPending = useRef(false);
 
   const reload = useCallback(async () => {
-    if (reloadInProgress.current) return;
-    const hid = householdIdRef.current;
-    if (!hid) return;
+    // Om en reload redan pågår: köa en till i stället för att kasta bort begäran,
+    // så att den senaste DB-ändringen alltid hämtas (annars tappas realtime-händelser
+    // som anländer mitt i en pågående reload).
+    if (reloadInProgress.current) { reloadPending.current = true; return; }
+    if (!householdIdRef.current) return;
     reloadInProgress.current = true;
     try {
-      const appState = await loadHouseholdData(hid);
-      internalDispatch({ type: "HYDRATE", state: appState });
+      do {
+        reloadPending.current = false;
+        const hid = householdIdRef.current;
+        if (!hid) break;
+        const appState = await loadHouseholdData(hid);
+        internalDispatch({ type: "HYDRATE", state: appState });
+      } while (reloadPending.current);
     } catch (err) {
       Sentry.captureException(err);
     } finally {
@@ -541,6 +550,11 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "loans",                   filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "recurring_transactions",  filter: `household_id=eq.${householdId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "import_rules",             filter: `household_id=eq.${householdId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "subscription_overrides",   filter: `household_id=eq.${householdId}` }, reload)
+      // Sub-tabeller utan household_id — RLS via parent skyddar vilka händelser som tas emot.
+      .on("postgres_changes", { event: "*", schema: "public", table: "savings_contributions" }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "savings_snapshots" }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "loan_payments" }, reload)
       .subscribe((status) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           offlineToastId = toast.warning("Realtidsuppdateringar pausade", {
@@ -675,24 +689,12 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
     internalDispatch(processed);
 
-    // När en återkommande inkomst sparas, synka personens månadsinkomst automatiskt
-    // så att 57/43-fördelningen alltid stämmer utan manuell uppdatering.
-    // Summerar ALLA aktiva återkommande inkomster för personen – inte bara den senaste.
-    if (processed.type === "UPSERT_RECURRING" && processed.rt.type === "income" && processed.rt.payerId) {
-      const payerId = processed.rt.payerId;
-      const prevRecurrings = stateRef.current.recurringTransactions;
-      // Applicera upsert lokalt för att beräkna ny summa korrekt
-      const updatedRecurrings = prevRecurrings.some(r => r.id === processed.rt.id)
-        ? prevRecurrings.map(r => r.id === processed.rt.id ? processed.rt : r)
-        : [...prevRecurrings, processed.rt];
-      const totalIncome = updatedRecurrings
-        .filter(r => r.type === "income" && r.isActive && r.payerId === payerId)
-        .reduce((sum, r) => sum + r.amount, 0);
-      const incomeSync: Action = {
-        type: "UPDATE_PERSON",
-        id: payerId,
-        patch: { income: totalIncome },
-      };
+    // När en återkommande inkomst läggs till, ändras eller tas bort, synka berörda
+    // personers månadsinkomst automatiskt så att inkomstfördelningen alltid stämmer
+    // utan manuell uppdatering. Hanterar byte av betalare och borttagning/typändring
+    // (gammal betalare nollställs). Summerar ALLA aktiva återkommande inkomster.
+    for (const { payerId, income } of computeIncomeSyncs(processed, stateRef.current.recurringTransactions)) {
+      const incomeSync: Action = { type: "UPDATE_PERSON", id: payerId, patch: { income } };
       internalDispatch(incomeSync);
       const hid = householdIdRef.current;
       const uid = userRef.current;

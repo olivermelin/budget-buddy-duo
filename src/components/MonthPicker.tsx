@@ -54,11 +54,11 @@ export function MonthPicker({ value, onChange, placeholder = "Välj månad", cla
       <PopoverContent className="w-64 p-3" align="start">
         {/* Årnavigering */}
         <div className="flex items-center justify-between mb-3">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewYear(y => y - 1)}>
+          <Button variant="ghost" size="icon" aria-label="Föregående år" className="h-7 w-7" onClick={() => setViewYear(y => y - 1)}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="text-sm font-semibold tabular-nums">{viewYear}</span>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewYear(y => y + 1)}>
+          <Button variant="ghost" size="icon" aria-label="Nästa år" className="h-7 w-7" onClick={() => setViewYear(y => y + 1)}>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>

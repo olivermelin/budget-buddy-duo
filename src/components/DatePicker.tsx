@@ -97,13 +97,13 @@ export function DatePicker({ value, onChange, placeholder = "Välj datum", class
       <PopoverContent className="w-72 p-3" align="start">
         {/* Månadsnavigering */}
         <div className="flex items-center justify-between mb-2">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMonth}>
+          <Button variant="ghost" size="icon" aria-label="Föregående månad" className="h-7 w-7" onClick={prevMonth}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="text-sm font-semibold capitalize">
             {MONTH_NAMES[viewMonth]} {viewYear}
           </span>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMonth}>
+          <Button variant="ghost" size="icon" aria-label="Nästa månad" className="h-7 w-7" onClick={nextMonth}>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>

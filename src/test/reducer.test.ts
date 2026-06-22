@@ -287,35 +287,23 @@ describe("Budget reducer", () => {
     });
   });
 
-  // --- RESET / CLEAR ---
+  // --- CLEAR ---
 
-  describe("RESET och CLEAR", () => {
-    it("nollställer transactions, goals och subscriptionOverrides vid RESET", () => {
+  describe("CLEAR", () => {
+    it("nollställer transactions, goals, loans och subscriptionOverrides men bevarar categories/settings", () => {
       const state = makeState({
         transactions: [makeTx()],
         goals: [makeGoal()],
         subscriptionOverrides: { key: "active" },
         categories: [makeCategory()],
       });
-      const result = reducer(state, { type: "RESET" });
+      const result = reducer(state, { type: "CLEAR" });
       expect(result.transactions).toEqual([]);
       expect(result.goals).toEqual([]);
       expect(result.subscriptionOverrides).toEqual({});
       // categories och settings bevaras
       expect(result.categories).toHaveLength(1);
       expect(result.settings.householdName).toBe("Testfamiljen");
-    });
-
-    it("nollställer samma fält vid CLEAR", () => {
-      const state = makeState({
-        transactions: [makeTx()],
-        goals: [makeGoal()],
-        subscriptionOverrides: { key: "active" },
-      });
-      const result = reducer(state, { type: "CLEAR" });
-      expect(result.transactions).toEqual([]);
-      expect(result.goals).toEqual([]);
-      expect(result.subscriptionOverrides).toEqual({});
     });
   });
 
