@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, PiggyBank, Receipt, Users, Target, BarChart3, Settings, Plus, Moon, Sun, Wallet, LogOut, MoreHorizontal, Landmark } from "lucide-react";
+import { LayoutDashboard, PiggyBank, Receipt, Users, Target, BarChart3, Settings, Plus, Moon, Sun, Wallet, LogOut, MoreHorizontal, Landmark, HeartPulse } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { useBudget } from "@/store/budget-store";
@@ -25,6 +25,7 @@ const overflowNav = [
   { to: "/goals", label: "Sparmål", icon: Target, end: false },
   { to: "/loans", label: "Lån", icon: Landmark, end: false },
   { to: "/statistics", label: "Statistik", icon: BarChart3, end: false },
+  { to: "/health", label: "Ekonomisk hälsa", icon: HeartPulse, end: false },
   { to: "/settings", label: "Inställningar", icon: Settings, end: false },
 ];
 
