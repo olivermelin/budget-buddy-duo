@@ -15,7 +15,7 @@ import { useMonthNavigator } from "@/hooks/useMonthNavigator";
 
 export default function CoupleMode() {
   const { state, dispatch } = useBudget();
-  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator();
+  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator(state.settings.payDay ?? 1);
   const [selectedSettlement, setSelectedSettlement] = useState<Settlement | null>(null);
   const [breakdown, setBreakdown] = useState<"fixed" | "variable" | null>(null);
   const split = useMemo(() => calcSplit(state, monthDate.getFullYear(), monthDate.getMonth()), [state, offset]);

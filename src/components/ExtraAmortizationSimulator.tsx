@@ -23,6 +23,10 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   loans: Loan[];
+  /** Förifyllning vid djuplänk från t.ex. Ekonomisk hälsa. */
+  initialLoanId?: string;
+  initialExtra?: number;
+  initialLump?: number;
 }
 
 interface SimPoint {
@@ -160,16 +164,20 @@ const LOAN_TYPE_ICON: Record<string, string> = {
   other: "💰",
 };
 
-export function ExtraAmortizationSimulator({ loans }: Props) {
+export function ExtraAmortizationSimulator({ loans, initialLoanId, initialExtra, initialLump }: Props) {
   const [selectedId, setSelectedId] = useState<string>(
+    (initialLoanId && loans.some(l => l.id === initialLoanId) ? initialLoanId : undefined) ??
     loans.find(l => l.type === "mortgage")?.id ?? loans[0]?.id ?? "__manual__",
   );
   const [manualBalance, setManualBalance] = useState(2_700_000);
   const [manualRate, setManualRate] = useState(3.0);
   const [manualAmort, setManualAmort] = useState(2_250);
 
-  const [extraMonthly, setExtraMonthly] = useState(2_000);
-  const [lumpSum, setLumpSum] = useState(0);
+  // Slidern är begränsad till 20 000 kr; klampa förslaget så reglaget inte hamnar utanför.
+  const [extraMonthly, setExtraMonthly] = useState(
+    initialExtra != null ? Math.min(20_000, Math.max(0, initialExtra)) : 2_000,
+  );
+  const [lumpSum, setLumpSum] = useState(initialLump != null ? Math.max(0, initialLump) : 0);
   const [applyTax, setApplyTax] = useState(true);
 
   const isManual = selectedId === "__manual__";

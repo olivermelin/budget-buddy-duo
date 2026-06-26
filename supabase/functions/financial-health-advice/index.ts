@@ -23,12 +23,18 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+interface Scenario {
+  label: string;
+  detail: string;
+}
+
 interface Finding {
   status: "good" | "warn" | "bad";
   title: string;
   detail: string;
   source: string;
   action?: string;
+  scenarios?: Scenario[];
 }
 
 Deno.serve(async (req) => {
@@ -51,7 +57,12 @@ Deno.serve(async (req) => {
   const { score, grade, basis, findings = [] } = payload;
 
   const findingLines = findings
-    .map(f => `- [${f.status}] ${f.title}: ${f.detail}${f.action ? ` (Förslag: ${f.action})` : ""} (Källa: ${f.source})`)
+    .map(f => {
+      const scenarioText = f.scenarios?.length
+        ? `\n  Beräknade åtgärder: ${f.scenarios.map(s => `${s.label} – ${s.detail}`).join(" ")}`
+        : "";
+      return `- [${f.status}] ${f.title}: ${f.detail}${f.action ? ` (Förslag: ${f.action})` : ""} (Källa: ${f.source})${scenarioText}`;
+    })
     .join("\n");
 
   const userContent = [

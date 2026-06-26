@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
 import { lastNMonths, summarizeMonth } from "@/lib/analytics";
-import { sek, monthShort, monthLabel } from "@/lib/format";
+import { sek, monthShort, periodLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -63,7 +63,7 @@ type PieFilter = "all" | "shared" | "private";
 function DiagramTab() {
   const { state } = useBudget();
   const today = new Date();
-  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator();
+  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator(state.settings.payDay ?? 1);
   const [pieFilter, setPieFilter] = useState<PieFilter>("all");
   const sixMonths = useMemo(() => lastNMonths(state, 6, today), [state]);
   const monthSummary = useMemo(() => summarizeMonth(state, monthDate.getFullYear(), monthDate.getMonth()), [state, offset]);
@@ -115,7 +115,7 @@ function DiagramTab() {
         <Card className="p-5 md:p-6 rounded-2xl shadow-soft border-0">
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <h2 className="font-display font-semibold">Kategorifördelning</h2>
-            <MonthNavigator label={monthLabel(monthDate)} onPrev={prev} onNext={next} canGoNext={canGoNext} size="sm" />
+            <MonthNavigator label={periodLabel(monthDate, state.settings.payDay ?? 1)} onPrev={prev} onNext={next} canGoNext={canGoNext} size="sm" />
           </div>
 
           {hasPrivate && (

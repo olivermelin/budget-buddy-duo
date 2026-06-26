@@ -195,8 +195,12 @@ export function TransactionModal({ open, onOpenChange, defaultCategoryId, transa
       const isoDate = `${date}T12:00:00.000Z`;
 
       // Anpassad fördelning gäller endast delade utgifter i tvåpersonershushåll.
+      // En 50/50-delning är identisk med standard (rörliga delas alltid lika), så den
+      // sparas INTE som anpassad — annars hamnar utgiften felaktigt utanför "Rörliga
+      // utgifter" i fördelningen utan att fördelningen faktiskt skiljer sig.
+      const isEqualSplit = splitShare0 === 50;
       const splitShares =
-        type === "expense" && !effectivePrivate && splitCustom && p0 && p1
+        type === "expense" && !effectivePrivate && splitCustom && !isEqualSplit && p0 && p1
           ? { [p0.id]: splitShare0, [p1.id]: 100 - splitShare0 }
           : undefined;
 

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useBudget } from "@/store/budget-store";
-import { computeFinancialHealth, type FinancialHealth as FinancialHealthResult, HealthFinding, HealthStatus } from "@/lib/financial-health";
+import { computeFinancialHealth, type FinancialHealth as FinancialHealthResult, HealthFinding, HealthScenario, HealthStatus } from "@/lib/financial-health";
+import { currentPeriodMonth } from "@/lib/analytics";
 import { supabase } from "@/lib/supabase";
 import { sek, periodLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { HeartPulse, Sparkles, TrendingUp, AlertTriangle, CheckCircle2, Info, ArrowRight } from "lucide-react";
+import { HeartPulse, Sparkles, TrendingUp, AlertTriangle, CheckCircle2, Info, ArrowRight, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Deterministisk sammanfattning som visas om AI-lagret inte är tillgängligt.
@@ -39,8 +40,9 @@ const barColor = (score: number) =>
 
 export default function FinancialHealth() {
   const { state } = useBudget();
-  const today = new Date();
-  const health = useMemo(() => computeFinancialHealth(state, today), [state]);
+  // Lönedagsmedveten innevarande period — samma definition som resten av appen.
+  const periodDate = useMemo(() => currentPeriodMonth(state.settings.payDay ?? 1), [state.settings.payDay]);
+  const health = useMemo(() => computeFinancialHealth(state, periodDate), [state, periodDate]);
 
   const [advice, setAdvice] = useState<{ text: string; source: "ai" | "fallback" } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +67,7 @@ export default function FinancialHealth() {
             basis: health.basis,
             findings: health.findings.map(f => ({
               status: f.status, title: f.title, detail: f.detail, source: f.source, action: f.action,
+              scenarios: f.scenarios?.map(s => ({ label: s.label, detail: s.detail })),
             })),
           },
         });
@@ -86,7 +89,7 @@ export default function FinancialHealth() {
   return (
     <div className="space-y-6 md:space-y-8">
       <div>
-        <p className="text-sm text-muted-foreground">{periodLabel(today, state.settings.payDay ?? 1)}</p>
+        <p className="text-sm text-muted-foreground">{periodLabel(periodDate, state.settings.payDay ?? 1)}</p>
         <h1 className="text-3xl md:text-4xl font-display font-bold mt-1 flex items-center gap-3">
           <HeartPulse className="h-8 w-8 text-primary" /> Ekonomisk hälsa
         </h1>
@@ -194,6 +197,11 @@ function FindingRow({ f }: { f: HealthFinding }) {
                 : <span>{f.action}</span>}
             </p>
           )}
+          {f.scenarios && f.scenarios.length > 0 && (
+            <ul className="mt-3 space-y-2">
+              {f.scenarios.map(s => <ScenarioRow key={s.label} s={s} />)}
+            </ul>
+          )}
         </div>
         {f.impact != null && f.impact >= 1 && (
           <div className="text-right shrink-0">
@@ -203,5 +211,40 @@ function FindingRow({ f }: { f: HealthFinding }) {
         )}
       </div>
     </Card>
+  );
+}
+
+// Djuplänk till amorteringssimulatorn med förslaget förifyllt.
+function scenarioHref(s: HealthScenario): string | null {
+  if (!s.sim) return null;
+  const p = new URLSearchParams({ tab: "simulator", loanId: s.sim.loanId });
+  if (s.sim.extra) p.set("extra", String(s.sim.extra));
+  if (s.sim.lump) p.set("lump", String(s.sim.lump));
+  return `/loans?${p.toString()}`;
+}
+
+function ScenarioRow({ s }: { s: HealthScenario }) {
+  const href = scenarioHref(s);
+  const body = (
+    <>
+      <ArrowRight className="h-4 w-4 shrink-0 mt-0.5 text-primary" aria-hidden="true" />
+      <span className="flex-1">
+        <span className="font-medium">{s.label}.</span>{" "}
+        <span className="text-muted-foreground">{s.detail}</span>
+      </span>
+      {href && (
+        <span className="ml-auto shrink-0 flex items-center gap-0.5 text-xs font-medium text-primary">
+          Simulera <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </span>
+      )}
+    </>
+  );
+  const base = "text-sm flex items-start gap-2 rounded-xl bg-background/60 p-2.5";
+  return href ? (
+    <li>
+      <Link to={href} className={cn(base, "transition-colors hover:bg-background")}>{body}</Link>
+    </li>
+  ) : (
+    <li className={base}>{body}</li>
   );
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
-import { summarizeMonth, calcRemainingToSpend, inMonth } from "@/lib/analytics";
+import { summarizeMonth, calcRemainingToSpend, inMonth, currentPeriodMonth } from "@/lib/analytics";
 import { sek, pct, monthLabel, periodLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,14 +17,16 @@ export default function Dashboard() {
   const [open, setOpen] = useState(false);
   const [breakdown, setBreakdown] = useState<"fixed" | "variable" | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
-  const today = new Date();
+  // Lönedagsmedveten "innevarande period" — samma definition som månadsnavigatorn,
+  // så Översikt visar samma löneperiod som Fördelning/Budget/Statistik.
+  const periodDate = useMemo(() => currentPeriodMonth(state.settings.payDay ?? 1), [state.settings.payDay]);
 
-  const cur = useMemo(() => summarizeMonth(state, today.getFullYear(), today.getMonth()), [state]);
-  const prevDate = useMemo(() => new Date(today.getFullYear(), today.getMonth() - 1, 1), []);
-  const prev = useMemo(() => summarizeMonth(state, prevDate.getFullYear(), prevDate.getMonth()), [state]);
+  const cur = useMemo(() => summarizeMonth(state, periodDate.getFullYear(), periodDate.getMonth()), [state, periodDate]);
+  const prevDate = useMemo(() => new Date(periodDate.getFullYear(), periodDate.getMonth() - 1, 1), [periodDate]);
+  const prev = useMemo(() => summarizeMonth(state, prevDate.getFullYear(), prevDate.getMonth()), [state, prevDate]);
 
   // "Kvar att spendera" beräknas centralt i calcRemainingToSpend — samma tal i hela appen.
-  const rem = useMemo(() => calcRemainingToSpend(state, today.getFullYear(), today.getMonth()), [state]);
+  const rem = useMemo(() => calcRemainingToSpend(state, periodDate.getFullYear(), periodDate.getMonth()), [state, periodDate]);
   const remPrev = useMemo(() => calcRemainingToSpend(state, prevDate.getFullYear(), prevDate.getMonth()), [state, prevDate]);
   const plan = rem.plan;
   const heroUsesPlan = rem.model === "plan";
@@ -45,10 +47,10 @@ export default function Dashboard() {
       fixedCatIds.has(t.categoryId ?? "") || !!t.isRecurring;
     return state.transactions.filter(t =>
       t.type === "expense" &&
-      inMonth(t.date, today.getFullYear(), today.getMonth(), state.settings.payDay ?? 1) &&
+      inMonth(t.date, periodDate.getFullYear(), periodDate.getMonth(), state.settings.payDay ?? 1) &&
       (breakdown === "fixed" ? isFixed(t) : !isFixed(t))
     ).sort((a, b) => b.date.localeCompare(a.date));
-  }, [breakdown, state.transactions, today, fixedCatIds]);
+  }, [breakdown, state.transactions, periodDate, fixedCatIds]);
 
   const insights = useMemo(() => {
     const out: { label: string; tone: "good" | "warn" | "info" }[] = [];
@@ -94,7 +96,7 @@ export default function Dashboard() {
     <div className="space-y-6 md:space-y-8">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <p className="text-sm text-muted-foreground">{periodLabel(today, state.settings.payDay ?? 1)}</p>
+          <p className="text-sm text-muted-foreground">{periodLabel(periodDate, state.settings.payDay ?? 1)}</p>
           <h1 className="text-3xl md:text-4xl font-display font-bold mt-1">Hej {state.persons[0]?.name ?? "där"} <span aria-hidden="true">👋</span></h1>
         </div>
         <Button onClick={() => setOpen(true)} className="hidden md:inline-flex bg-gradient-primary rounded-xl shadow-soft">
@@ -188,7 +190,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-1">
             <CalendarCheck className="h-4 w-4 text-primary" />
             <h2 className="font-display font-semibold">Månadsplan</h2>
-            <span className="ml-auto text-xs text-muted-foreground capitalize">{periodLabel(today, state.settings.payDay ?? 1)}</span>
+            <span className="ml-auto text-xs text-muted-foreground capitalize">{periodLabel(periodDate, state.settings.payDay ?? 1)}</span>
           </div>
           <p className="text-xs text-muted-foreground mb-4">Så här räknas «Kvar att spendera» ovan fram.</p>
 
@@ -371,7 +373,7 @@ export default function Dashboard() {
         <DialogContent className="sm:max-w-lg rounded-2xl">
           <DialogHeader>
             <DialogTitle className="font-display text-xl">
-              {breakdown === "fixed" ? "Fasta utgifter" : "Rörliga utgifter"} — {periodLabel(today, state.settings.payDay ?? 1)}
+              {breakdown === "fixed" ? "Fasta utgifter" : "Rörliga utgifter"} — {periodLabel(periodDate, state.settings.payDay ?? 1)}
             </DialogTitle>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto -mx-6 px-6">

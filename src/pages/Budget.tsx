@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useBudget } from "@/store/budget-store";
 import { useAuth } from "@/context/AuthContext";
 import { summarizeMonth, computeEffectiveBudgets, inMonth } from "@/lib/analytics";
-import { sek, pct, monthLabel, dateLabel } from "@/lib/format";
+import { sek, pct, periodLabel, dateLabel } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,7 +82,7 @@ export default function Budget() {
 
 function BudgetTab() {
   const { state } = useBudget();
-  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator();
+  const { offset, monthDate, prev, next, canGoNext } = useMonthNavigator(state.settings.payDay ?? 1);
   const summary = useMemo(() => summarizeMonth(state, monthDate.getFullYear(), monthDate.getMonth()), [state, offset]);
   const effectiveBudgets = useMemo(() => computeEffectiveBudgets(state), [state]);
   const [drillId, setDrillId] = useState<string | null>(null);
@@ -103,7 +103,7 @@ function BudgetTab() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end">
-        <MonthNavigator label={monthLabel(monthDate)} onPrev={prev} onNext={next} canGoNext={canGoNext} />
+        <MonthNavigator label={periodLabel(monthDate, state.settings.payDay ?? 1)} onPrev={prev} onNext={next} canGoNext={canGoNext} />
       </div>
 
       <Card className="p-6 rounded-2xl shadow-soft border-0 bg-gradient-primary text-white">
@@ -197,7 +197,7 @@ function BudgetTab() {
               {drillCat?.name}
             </DialogTitle>
           </DialogHeader>
-          <div className="text-sm text-muted-foreground capitalize mb-2">{monthLabel(monthDate)}</div>
+          <div className="text-sm text-muted-foreground capitalize mb-2">{periodLabel(monthDate, state.settings.payDay ?? 1)}</div>
           <div className="max-h-96 overflow-auto -mx-6 px-6 divide-y divide-border">
             {drillTxs.length === 0 && <div className="text-sm text-muted-foreground py-6 text-center">Inga transaktioner denna månad.</div>}
             {drillTxs.map(t => (

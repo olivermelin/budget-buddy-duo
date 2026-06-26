@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeFinancialHealth } from "@/lib/financial-health";
+import { computeFinancialHealth, simulatePayoff } from "@/lib/financial-health";
 import { AppState, Transaction, Category, Person, Loan, SavingsGoal } from "@/types/budget";
 
 // ─── Factories ──────────────────────────────────────────────────────────────
@@ -276,6 +276,19 @@ describe("computeFinancialHealth — totalpoäng & robusthet", () => {
     expect(r.score).toBe(0);
   });
 
+  it("räknar på aktuell löneperiod efter lönedagen (payDay-medvetet)", () => {
+    const state = makeState({
+      settings: { householdName: "Test", splitMode: "50/50", theme: "system", payDay: 25 },
+      persons: [makePerson({ income: 40000 })],
+      categories: [makeCategory({ id: "var-1" })],
+      // 26 juni ligger i perioden 25 jun–24 jul. Med rå "idag" (juni) hamnade den
+      // utanför fönstret och utgiften försvann; ankaret ska fånga den.
+      transactions: [makeTx({ date: "2026-06-26", amount: 8000, categoryId: "var-1" })],
+    });
+    const r = computeFinancialHealth(state, new Date(2026, 5, 26));
+    expect(r.basis.variable).toBe(8000);
+  });
+
   it("sorterar findings med allvarligaste (bad) först", () => {
     const state = makeState({
       persons: [makePerson({ income: 30000 })],
@@ -288,5 +301,116 @@ describe("computeFinancialHealth — totalpoäng & robusthet", () => {
     if (firstBad !== -1 && firstGood !== -1) {
       expect(firstBad).toBeLessThan(firstGood);
     }
+  });
+});
+
+// ─── Amorteringssimulering ────────────────────────────────────────────────────
+
+describe("simulatePayoff", () => {
+  it("räknar löptiden för ett räntefritt lån som saldo/amortering", () => {
+    const r = simulatePayoff(12000, 0, 1000);
+    expect(r.months).toBe(12);
+    expect(r.totalInterest).toBe(0);
+  });
+
+  it("returnerar Infinity när amorteringen är noll (skulden betas aldrig av)", () => {
+    const r = simulatePayoff(50000, 5, 0);
+    expect(r.months).toBe(Infinity);
+  });
+
+  it("ger kortare löptid och lägre total ränta vid högre amortering", () => {
+    const base = simulatePayoff(100000, 6, 1000);
+    const faster = simulatePayoff(100000, 6, 2000);
+    expect(faster.months).toBeLessThan(base.months);
+    expect(faster.totalInterest).toBeLessThan(base.totalInterest);
+    expect(base.totalInterest).toBeGreaterThan(0);
+  });
+
+  it("tar med ränta på saldot — sista månaden överamorterar inte", () => {
+    // 10000 / 2500 = 4 hela amorteringar, ränta tillkommer men löptiden ska vara 4 mån.
+    const r = simulatePayoff(10000, 12, 2500);
+    expect(r.months).toBe(4);
+  });
+});
+
+// ─── Skuldbörda — konkreta åtgärdsförslag ─────────────────────────────────────
+
+describe("computeFinancialHealth — åtgärdsförslag för skuldbörda", () => {
+  // Hög skuldbörda + tydligt månadsöverskott → alla tre scenarier ska finnas.
+  const heavyDebtState = () => makeState({
+    persons: [makePerson({ income: 40000 })],
+    categories: [makeCategory({ id: "var-1" })],
+    transactions: [makeTx({ date: "2026-03-10", amount: 4000, categoryId: "var-1" })],
+    loans: [
+      makeLoan({ name: "Privatlån", type: "personal", interestRate: 9, currentBalance: 120000, monthlyPayment: 13000, monthlyAmortization: 10000, monthlyFee: 0 }),
+      makeLoan({ name: "Billån", type: "car", interestRate: 4, currentBalance: 40000, monthlyPayment: 3000, monthlyAmortization: 2000, monthlyFee: 0 }),
+    ],
+  });
+
+  it("ger debt-service-fyndet konkreta scenarier när skuldbördan är hög", () => {
+    const f = finding(computeFinancialHealth(heavyDebtState(), REF), "debt-service")!;
+    expect(f.status).toBe("bad");
+    expect(f.scenarios && f.scenarios.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("föreslår extra amortering anpassad till överskottet, med positiv effekt", () => {
+    const f = finding(computeFinancialHealth(heavyDebtState(), REF), "debt-service")!;
+    const extra = f.scenarios!.find(s => s.label === "Amortera mer")!;
+    expect(extra).toBeDefined();
+    // Sparar räntekronor och förkortar löptiden → positiv effekt.
+    expect(extra.impact).toBeGreaterThan(0);
+  });
+
+  it("inkluderar ett sänk-skuldkvoten-scenario som pekar ut den ärliga spaken", () => {
+    const f = finding(computeFinancialHealth(heavyDebtState(), REF), "debt-service")!;
+    const ratio = f.scenarios!.find(s => s.label === "Sänk skuldkvoten")!;
+    expect(ratio).toBeDefined();
+    expect(ratio.detail).toContain("20");
+  });
+
+  it("håller den föreslagna extraamorteringen rimlig — långt under hela överskottet", () => {
+    const state = heavyDebtState();
+    // Överskott efter lånekostnader: 40000 − 4000 rörligt − 16000 lån = 20000.
+    const f = finding(computeFinancialHealth(state, REF), "debt-service")!;
+    const extra = f.scenarios!.find(s => s.label === "Amortera mer")!;
+    // Får aldrig sluka hela överskottet — högst ~en tredjedel.
+    expect(extra.sim!.extra!).toBeLessThanOrEqual(20000 / 3);
+    expect(extra.sim!.extra!).toBeGreaterThan(0);
+  });
+
+  it("länkar amortera-mer till simulatorn med rätt lån och förifyllt extrabelopp", () => {
+    const state = heavyDebtState();
+    const worst = state.loans.find(l => l.name === "Privatlån")!; // högst ränta
+    const f = finding(computeFinancialHealth(state, REF), "debt-service")!;
+    const extra = f.scenarios!.find(s => s.label === "Amortera mer")!;
+    expect(extra.sim!.loanId).toBe(worst.id);
+    expect(extra.sim!.extra).toBeGreaterThan(0);
+  });
+
+  it("länkar engångsinsättning till simulatorns engångsfält", () => {
+    const state = heavyDebtState();
+    const worst = state.loans.find(l => l.name === "Privatlån")!;
+    const f = finding(computeFinancialHealth(state, REF), "debt-service")!;
+    const lump = f.scenarios!.find(s => s.label === "Engångsinsättning")!;
+    expect(lump.sim!.loanId).toBe(worst.id);
+    expect(lump.sim!.lump).toBeGreaterThan(0);
+  });
+
+  it("utelämnar extra-amortering-scenariot när hushållet saknar månadsöverskott", () => {
+    const state = makeState({
+      persons: [makePerson({ income: 30000 })],
+      categories: [makeCategory({ id: "var-1" })],
+      // Rörliga utgifter äter upp allt som blir kvar efter lånekostnaderna.
+      transactions: [makeTx({ date: "2026-03-10", amount: 21000, categoryId: "var-1" })],
+      loans: [makeLoan({ name: "Privatlån", type: "personal", interestRate: 9, currentBalance: 120000, monthlyPayment: 9000, monthlyAmortization: 7000, monthlyFee: 0 })],
+    });
+    const f = finding(computeFinancialHealth(state, REF), "debt-service")!;
+    const extra = f.scenarios?.find(s => s.label === "Amortera mer");
+    expect(extra).toBeUndefined();
+  });
+
+  it("ger inga skuld-scenarier när hushållet saknar lån", () => {
+    const state = makeState({ persons: [makePerson({ income: 40000 })] });
+    expect(finding(computeFinancialHealth(state, REF), "debt-service")).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
-import { AppState } from "@/types/budget";
-import { lastNMonths, summarizeMonth, detectSubscriptions, computeEffectiveBudgets } from "./analytics";
+import { AppState, Loan } from "@/types/budget";
+import { lastNMonths, summarizeMonth, detectSubscriptions, computeEffectiveBudgets, currentPeriodMonth } from "./analytics";
 import { sek, pct } from "./format";
 
 // ─── Ekonomisk hälsa — källförankrad regelmotor ──────────────────────────────
@@ -17,6 +17,14 @@ import { sek, pct } from "./format";
 export type HealthStatus = "good" | "warn" | "bad";
 export type HealthArea = "savings" | "fixed" | "debt" | "variable";
 
+export interface HealthScenario {
+  label: string;
+  detail: string;
+  impact?: number;   // ungefärlig effekt kr/mån (för sortering/visning)
+  // Förifyllning av amorteringssimulatorn när användaren klickar på förslaget.
+  sim?: { loanId: string; extra?: number; lump?: number };
+}
+
 export interface HealthFinding {
   id: string;
   area: HealthArea;
@@ -28,6 +36,7 @@ export interface HealthFinding {
   source: string;
   action?: string;
   impact?: number;   // kr/mån potentiell effekt — sorteringsnyckel
+  scenarios?: HealthScenario[]; // konkreta åtgärdsförslag med beräknade tal
 }
 
 export interface AreaScore {
@@ -79,8 +88,117 @@ const gradeFor = (score: number): FinancialHealth["grade"] =>
 
 const HIGH_INTEREST_TYPES = new Set(["credit_card", "personal"]);
 
+// Amorteringssimulering med fast amortering (rak amortering) — appens lånemodell.
+// Räntan ackumuleras på saldot varje månad och betalas vid sidan av amorteringen;
+// saldot minskar med `monthlyPrincipal` tills det är avbetalt. Annuitetslån betalas
+// av något snabbare, så detta är en medvetet försiktig uppskattning. Capas vid 100 år
+// så ett lån utan amortering inte loopar oändligt.
+export function simulatePayoff(
+  balance: number,
+  annualRatePct: number,
+  monthlyPrincipal: number,
+): { months: number; totalInterest: number } {
+  if (monthlyPrincipal <= 0) return { months: Infinity, totalInterest: Infinity };
+  const monthlyRate = annualRatePct / 100 / 12;
+  const CAP = 1200; // 100 år
+  let bal = balance;
+  let totalInterest = 0;
+  let months = 0;
+  while (bal > 0 && months < CAP) {
+    totalInterest += bal * monthlyRate;
+    bal -= monthlyPrincipal;
+    months++;
+  }
+  return { months, totalInterest };
+}
+
+const round500 = (n: number) => Math.round(n / 500) * 500;
+const round1000 = (n: number) => Math.round(n / 1000) * 1000;
+
+// Konkreta, beräknade åtgärdsförslag för en hög skuldbörda. Alla tal kommer härifrån —
+// AI-lagret får bara formulera dem. Förslagen förankras i det dyraste lånet och anpassas
+// till hushållets faktiska överskott så att de aldrig förutsätter att man lever på noll.
+function buildDebtScenarios(
+  loans: Loan[],
+  income: number,
+  expenses: number,
+  debtMonthly: number,
+  totalSaved: number,
+): HealthScenario[] {
+  const scenarios: HealthScenario[] = [];
+  const withBalance = loans.filter(l => l.currentBalance > 0);
+  if (withBalance.length === 0) return scenarios;
+
+  // Dyraste lånet: högst ränta, vid lika störst saldo.
+  const worst = [...withBalance].sort(
+    (a, b) => b.interestRate - a.interestRate || b.currentBalance - a.currentBalance,
+  )[0];
+  const base = simulatePayoff(worst.currentBalance, worst.interestRate, worst.monthlyAmortization);
+
+  // Överskott efter nuvarande lånekostnader — konservativt, hellre för lågt än för högt.
+  const freeCashFlow = Math.max(0, income - expenses - debtMonthly);
+
+  // ── Amortera mer ── (bara med reellt månadsöverskott och en amortering att höja)
+  // Förslaget är en blygsam startpunkt: en femtedel av överskottet, så att det mesta av
+  // pengarna finns kvar att leva och spara för. Användaren finjusterar sen i simulatorn.
+  const extra = round500(freeCashFlow * 0.2);
+  if (freeCashFlow >= 300 && extra >= 500 && worst.monthlyAmortization > 0 && isFinite(base.months)) {
+    const faster = simulatePayoff(worst.currentBalance, worst.interestRate, worst.monthlyAmortization + extra);
+    const monthsSaved = base.months - faster.months;
+    const interestSaved = base.totalInterest - faster.totalInterest;
+    if (monthsSaved > 0) {
+      scenarios.push({
+        label: "Amortera mer",
+        detail: `Lägg ${sek(extra)}/mån extra på ${worst.name}: skuldfri ${monthsSaved} mån tidigare och spara ${sek(interestSaved)} i ränta totalt.`,
+        impact: interestSaved / base.months,
+        sim: { loanId: worst.id, extra },
+      });
+    }
+  }
+
+  // ── Engångsinsättning ── (från bufferten utöver 3 mån, annars ett bonus-skalat exempel)
+  const excessBuffer = Math.max(0, totalSaved - expenses * 3);
+  const lump = excessBuffer >= 5000 ? round1000(excessBuffer) : round1000(income);
+  const lumpSource = excessBuffer >= 5000
+    ? "pengar i bufferten utöver tre månadsutgifter"
+    : "t.ex. en bonus eller skatteåterbäring";
+  if (lump >= 1000 && worst.monthlyAmortization > 0 && isFinite(base.months)) {
+    const after = simulatePayoff(Math.max(0, worst.currentBalance - lump), worst.interestRate, worst.monthlyAmortization);
+    const monthsSaved = base.months - after.months;
+    const interestSaved = base.totalInterest - after.totalInterest;
+    if (monthsSaved > 0) {
+      scenarios.push({
+        label: "Engångsinsättning",
+        detail: `En engångsinsättning på ${sek(lump)} på ${worst.name} (${lumpSource}) kortar löptiden ${monthsSaved} mån och sparar ${sek(interestSaved)} i ränta.`,
+        impact: interestSaved / base.months,
+        sim: { loanId: worst.id, lump },
+      });
+    }
+  }
+
+  // ── Sänk skuldkvoten ── den ärliga spaken för själva kvoten: minska månadskostnaden.
+  const gap = debtMonthly - income * 0.20;
+  if (gap > 0) {
+    const smallest = [...withBalance].sort(
+      (a, b) => (a.monthlyPayment + (a.monthlyFee ?? 0)) - (b.monthlyPayment + (b.monthlyFee ?? 0)),
+    )[0];
+    const smallestCost = smallest.monthlyPayment + (smallest.monthlyFee ?? 0);
+    scenarios.push({
+      label: "Sänk skuldkvoten",
+      detail: `Lånekostnaderna ligger ${sek(gap)}/mån över riktmärket på 20 %. Att lösa eller refinansiera ${smallest.name} (${sek(smallestCost)}/mån) tar er närmare det.`,
+      impact: gap,
+    });
+  }
+
+  return scenarios;
+}
+
 export function computeFinancialHealth(state: AppState, ref: Date = new Date()): FinancialHealth {
-  const window = lastNMonths(state, 3, ref);
+  // Lönedagsmedvetet ankare: efter lönedagen tillhör "nu" den nya löneperioden, så
+  // 3-månadersfönstret och innevarande-månad-kontrollen ska utgå från den — annars
+  // missas all aktuell aktivitet och hälsan blir felaktigt rosenröd.
+  const anchor = currentPeriodMonth(state.settings.payDay ?? 1, ref);
+  const window = lastNMonths(state, 3, anchor);
   // Dela bara på månader med faktisk aktivitet så att en enstaka aktiv månad inte
   // späds ut över tre (vanligt för nya hushåll).
   const activeMonths = window.filter(m => m.income > 0 || m.expenses > 0).length || 1;
@@ -192,12 +310,18 @@ export function computeFinancialHealth(state: AppState, ref: Date = new Date()):
   const debtScore = lowerBetterScore(debtService, 0.20, 0.45);
   if (debtMonthly > 0) {
     const status: HealthStatus = debtService <= 0.20 ? "good" : debtService <= 0.35 ? "warn" : "bad";
+    const totalSaved = state.goals.reduce((s, g) => s + g.saved, 0);
+    // Bara när skuldbördan faktiskt är hög lägger vi på konkreta förbättringsförslag.
+    const scenarios = status === "good"
+      ? undefined
+      : buildDebtScenarios(state.loans, income, expenses, debtMonthly, totalSaved);
     findings.push({
       id: "debt-service", area: "debt", status,
       title: status === "good" ? "Hanterbar skuldbörda" : "Hög skuldbörda",
       detail: `Lånekostnaderna är ${pct(debtService)} av inkomsten (${sek(debtMonthly)}/mån).`,
       current: debtService, target: 0.20, source: "Finansinspektionen",
       impact: Math.max(0, debtMonthly - income * 0.20),
+      scenarios: scenarios && scenarios.length > 0 ? scenarios : undefined,
     });
   }
 
@@ -235,7 +359,7 @@ export function computeFinancialHealth(state: AppState, ref: Date = new Date()):
 
   // Kategori över budget (innevarande månad)
   const budgets = computeEffectiveBudgets(state);
-  const curMonth = summarizeMonth(state, ref.getFullYear(), ref.getMonth());
+  const curMonth = summarizeMonth(state, anchor.getFullYear(), anchor.getMonth());
   const overspent = state.categories
     .filter(c => !c.isIncome)
     .map(c => ({ c, spent: curMonth.byCategory[c.id] ?? 0, budget: budgets[c.id] ?? 0 }))
