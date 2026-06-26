@@ -433,6 +433,7 @@ export default function Loans() {
         <TabsContent value="simulator" className="mt-0 space-y-6">
           <ExtraAmortizationSimulator
             loans={visibleLoans}
+            householdAdults={state.persons.length}
             initialLoanId={simInitialLoanId}
             initialExtra={simInitialExtra}
             initialLump={simInitialLump}

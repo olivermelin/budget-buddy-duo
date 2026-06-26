@@ -1,6 +1,7 @@
 import { AppState, Loan } from "@/types/budget";
 import { lastNMonths, summarizeMonth, detectSubscriptions, computeEffectiveBudgets, currentPeriodMonth } from "./analytics";
 import { sek, pct } from "./format";
+import { effectiveAnnualRate, borrowersForLoan } from "./amortization";
 
 // ─── Ekonomisk hälsa — källförankrad regelmotor ──────────────────────────────
 //
@@ -93,19 +94,24 @@ const HIGH_INTEREST_TYPES = new Set(["credit_card", "personal"]);
 // saldot minskar med `monthlyPrincipal` tills det är avbetalt. Annuitetslån betalas
 // av något snabbare, så detta är en medvetet försiktig uppskattning. Capas vid 100 år
 // så ett lån utan amortering inte loopar oändligt.
+//
+// `applyTax` räknar räntan efter ränteavdrag (samma modell som amorteringssimulatorn,
+// som har avdraget påslaget by default) så att de talen aldrig glider isär.
 export function simulatePayoff(
   balance: number,
   annualRatePct: number,
   monthlyPrincipal: number,
+  opts: { applyTax?: boolean; borrowers?: number } = {},
 ): { months: number; totalInterest: number } {
   if (monthlyPrincipal <= 0) return { months: Infinity, totalInterest: Infinity };
-  const monthlyRate = annualRatePct / 100 / 12;
+  const { applyTax = false, borrowers = 1 } = opts;
   const CAP = 1200; // 100 år
   let bal = balance;
   let totalInterest = 0;
   let months = 0;
   while (bal > 0 && months < CAP) {
-    totalInterest += bal * monthlyRate;
+    const rate = applyTax ? effectiveAnnualRate(bal, annualRatePct, true, borrowers) : annualRatePct;
+    totalInterest += bal * (rate / 100 / 12);
     bal -= monthlyPrincipal;
     months++;
   }
@@ -124,6 +130,7 @@ function buildDebtScenarios(
   expenses: number,
   debtMonthly: number,
   totalSaved: number,
+  adults: number,
 ): HealthScenario[] {
   const scenarios: HealthScenario[] = [];
   const withBalance = loans.filter(l => l.currentBalance > 0);
@@ -133,7 +140,10 @@ function buildDebtScenarios(
   const worst = [...withBalance].sort(
     (a, b) => b.interestRate - a.interestRate || b.currentBalance - a.currentBalance,
   )[0];
-  const base = simulatePayoff(worst.currentBalance, worst.interestRate, worst.monthlyAmortization);
+  // Räkna räntan efter skatt (precis som amorteringssimulatorn) så att besparingen i
+  // förslaget matchar det användaren ser när hen klickar sig vidare till simulatorn.
+  const taxOpts = { applyTax: true, borrowers: borrowersForLoan(worst.ownerId, adults) };
+  const base = simulatePayoff(worst.currentBalance, worst.interestRate, worst.monthlyAmortization, taxOpts);
 
   // Överskott efter nuvarande lånekostnader — konservativt, hellre för lågt än för högt.
   const freeCashFlow = Math.max(0, income - expenses - debtMonthly);
@@ -143,7 +153,7 @@ function buildDebtScenarios(
   // pengarna finns kvar att leva och spara för. Användaren finjusterar sen i simulatorn.
   const extra = round500(freeCashFlow * 0.2);
   if (freeCashFlow >= 300 && extra >= 500 && worst.monthlyAmortization > 0 && isFinite(base.months)) {
-    const faster = simulatePayoff(worst.currentBalance, worst.interestRate, worst.monthlyAmortization + extra);
+    const faster = simulatePayoff(worst.currentBalance, worst.interestRate, worst.monthlyAmortization + extra, taxOpts);
     const monthsSaved = base.months - faster.months;
     const interestSaved = base.totalInterest - faster.totalInterest;
     if (monthsSaved > 0) {
@@ -163,7 +173,7 @@ function buildDebtScenarios(
     ? "pengar i bufferten utöver tre månadsutgifter"
     : "t.ex. en bonus eller skatteåterbäring";
   if (lump >= 1000 && worst.monthlyAmortization > 0 && isFinite(base.months)) {
-    const after = simulatePayoff(Math.max(0, worst.currentBalance - lump), worst.interestRate, worst.monthlyAmortization);
+    const after = simulatePayoff(Math.max(0, worst.currentBalance - lump), worst.interestRate, worst.monthlyAmortization, taxOpts);
     const monthsSaved = base.months - after.months;
     const interestSaved = base.totalInterest - after.totalInterest;
     if (monthsSaved > 0) {
@@ -314,7 +324,7 @@ export function computeFinancialHealth(state: AppState, ref: Date = new Date()):
     // Bara när skuldbördan faktiskt är hög lägger vi på konkreta förbättringsförslag.
     const scenarios = status === "good"
       ? undefined
-      : buildDebtScenarios(state.loans, income, expenses, debtMonthly, totalSaved);
+      : buildDebtScenarios(state.loans, income, expenses, debtMonthly, totalSaved, state.persons.length);
     findings.push({
       id: "debt-service", area: "debt", status,
       title: status === "good" ? "Hanterbar skuldbörda" : "Hög skuldbörda",
