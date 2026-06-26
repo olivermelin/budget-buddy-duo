@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Loan } from "@/types/budget";
-import { sek } from "@/lib/format";
+import { sek, pct } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -8,6 +8,7 @@ import { NumericInput } from "@/components/ui/numeric-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { TrendingDown, Clock, Sparkles, PiggyBank, Info } from "lucide-react";
+import { taxDeductionFactor, effectiveAnnualRate, borrowersForLoan } from "@/lib/amortization";
 import {
   LineChart,
   Line,
@@ -23,6 +24,8 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   loans: Loan[];
+  /** Antal vuxna i hushållet — styr ränteavdragets tröskel för gemensamma lån. */
+  householdAdults?: number;
   /** Förifyllning vid djuplänk från t.ex. Ekonomisk hälsa. */
   initialLoanId?: string;
   initialExtra?: number;
@@ -37,21 +40,6 @@ interface SimPoint {
   extraInterest: number | null;
 }
 
-// Ränteavdrag: 30 % upp till 100 000 kr/år, 21 % däröver (Skatteverket)
-function taxDeductionFactor(annualInterest: number): number {
-  if (annualInterest <= 0) return 0;
-  const threshold = 100_000;
-  if (annualInterest <= threshold) return 0.30;
-  return (threshold * 0.30 + (annualInterest - threshold) * 0.21) / annualInterest;
-}
-
-function effectiveRate(balanceNow: number, annualRate: number, applyTax: boolean): number {
-  if (!applyTax) return annualRate;
-  const annualInterest = balanceNow * (annualRate / 100);
-  const factor = taxDeductionFactor(annualInterest);
-  return annualRate * (1 - factor);
-}
-
 function buildSimulation(
   balance: number,
   annualRate: number,
@@ -59,7 +47,11 @@ function buildSimulation(
   extraMonthly: number,
   lumpSum: number,
   applyTax: boolean,
-  maxYears = 50,
+  borrowers: number,
+  // FI-minimiamortering (1 %/år) tar ~100 år med rak amortering — taket måste rymma det,
+  // annars visas vanliga bolån som "Aldrig" och räntebesparingen huggs av. Matchar
+  // simulatePayoff i financial-health.ts (CAP = 1200 mån).
+  maxYears = 100,
 ): {
   baselineMonths: number | null;
   extraMonths: number | null;
@@ -81,7 +73,7 @@ function buildSimulation(
   let extraMonths: number | null = null;
 
   // Effektiv månadsränta givet aktuellt saldo (tar hänsyn till ränteavdrag om aktiverat)
-  const rEff = (b: number) => b * (effectiveRate(b, annualRate, applyTax) / 100 / 12);
+  const rEff = (b: number) => b * (effectiveAnnualRate(b, annualRate, applyTax, borrowers) / 100 / 12);
 
   interface YearEntry {
     base: number;
@@ -164,7 +156,7 @@ const LOAN_TYPE_ICON: Record<string, string> = {
   other: "💰",
 };
 
-export function ExtraAmortizationSimulator({ loans, initialLoanId, initialExtra, initialLump }: Props) {
+export function ExtraAmortizationSimulator({ loans, householdAdults = 1, initialLoanId, initialExtra, initialLump }: Props) {
   const [selectedId, setSelectedId] = useState<string>(
     (initialLoanId && loans.some(l => l.id === initialLoanId) ? initialLoanId : undefined) ??
     loans.find(l => l.type === "mortgage")?.id ?? loans[0]?.id ?? "__manual__",
@@ -195,9 +187,14 @@ export function ExtraAmortizationSimulator({ loans, initialLoanId, initialExtra,
         : Math.max(0, loan.monthlyPayment - Math.round(loan.currentBalance * loan.interestRate / 100 / 12)))
     : manualAmort;
 
+  // Gemensamt lån (eller manuellt) delar avdragstaket på alla vuxna; personligt lån har en låntagare.
+  const borrowers = isManual
+    ? Math.max(1, householdAdults)
+    : borrowersForLoan(loan?.ownerId, householdAdults);
+
   const sim = useMemo(
-    () => buildSimulation(balance, annualRate, baseAmort, extraMonthly, lumpSum, applyTax),
-    [balance, annualRate, baseAmort, extraMonthly, lumpSum, applyTax],
+    () => buildSimulation(balance, annualRate, baseAmort, extraMonthly, lumpSum, applyTax, borrowers),
+    [balance, annualRate, baseAmort, extraMonthly, lumpSum, applyTax, borrowers],
   );
 
   const interestSaving = sim.baselineInterest - sim.extraInterest;
@@ -207,10 +204,14 @@ export function ExtraAmortizationSimulator({ loans, initialLoanId, initialExtra,
 
   const roi = totalExtraPaid > 0 ? interestSaving / totalExtraPaid : null;
 
+  // Den ärliga avkastningssiffran: varje amorterad krona "ger" lånets ränta efter skatt
+  // i garanterad årlig avkastning — inte den kumulativa besparingen över hela löptiden.
+  const afterTaxReturn = effectiveAnnualRate(balance, annualRate, applyTax, borrowers);
+
   const r = annualRate / 100 / 12;
   const currentMonthlyInterestGross = Math.round(balance * r);
   const annualInterestNow = balance * (annualRate / 100);
-  const deductionFactor = applyTax ? taxDeductionFactor(annualInterestNow) : 0;
+  const deductionFactor = applyTax ? taxDeductionFactor(annualInterestNow, borrowers) : 0;
   const monthlyDeduction = Math.round(currentMonthlyInterestGross * deductionFactor);
   const currentMonthlyInterest = currentMonthlyInterestGross - monthlyDeduction;
   const currentMonthlyCost = currentMonthlyInterest + baseAmort;
@@ -501,10 +502,11 @@ export function ExtraAmortizationSimulator({ loans, initialLoanId, initialExtra,
             <div>
               <div className="text-sm font-medium">Avkastning på extraamortering</div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                Varje extra krona ni amorterar ger tillbaka{" "}
-                <span className="font-semibold text-foreground">{(roi + 1).toFixed(2)} kr</span>
-                {" "}(inkl. kapital) — effektiv räntebesparing är{" "}
-                <span className="font-semibold text-foreground">{(roi * 100).toFixed(0)}%</span> på era extra inbetalningar.
+                Att amortera extra ger en garanterad avkastning på{" "}
+                <span className="font-semibold text-foreground">{pct(afterTaxReturn / 100, 1)}/år</span>
+                {" "}— lika mycket som {applyTax ? "er låneränta efter skatt" : "er låneränta"}. Totalt sparar ni{" "}
+                <span className="font-semibold text-foreground">{sek(Math.round(interestSaving))}</span>
+                {" "}i ränta över löptiden på {sek(Math.round(totalExtraPaid))} extra inbetalt.
               </div>
             </div>
           </div>
