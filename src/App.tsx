@@ -21,6 +21,7 @@ const CoupleMode = lazy(() => import("./pages/CoupleMode"));
 const Goals = lazy(() => import("./pages/Goals"));
 const Loans = lazy(() => import("./pages/Loans"));
 const Statistics = lazy(() => import("./pages/Statistics"));
+const FinancialHealth = lazy(() => import("./pages/FinancialHealth"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Login = lazy(() => import("./pages/Login"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
@@ -75,6 +76,7 @@ const App = () => (
                 <Route path="/goals" element={<ErrorBoundary><Goals /></ErrorBoundary>} />
                 <Route path="/loans" element={<ErrorBoundary><Loans /></ErrorBoundary>} />
                 <Route path="/statistics" element={<ErrorBoundary><Statistics /></ErrorBoundary>} />
+                <Route path="/health" element={<ErrorBoundary><FinancialHealth /></ErrorBoundary>} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 {/* Redirects för gamla svenska URL:er */}
                 <Route path="/transaktioner" element={<Navigate to="/transactions" replace />} />

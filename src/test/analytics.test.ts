@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { inMonth, summarizeMonth, lastNMonths, detectSubscriptions, calcSplit, calcCumulativeSplit, calcRemainingToSpend } from "@/lib/analytics";
+import { inMonth, summarizeMonth, lastNMonths, detectSubscriptions, calcSplit, calcCumulativeSplit, calcRemainingToSpend, currentPeriodMonth } from "@/lib/analytics";
 import { AppState, Transaction, Category, Person, RecurringTransaction } from "@/types/budget";
 
 // ─── Factories ──────────────────────────────────────────────────────────────
@@ -89,6 +89,29 @@ describe("inMonth", () => {
     // marsdagar i februariperioden. payDay ska clampas till max 28.
     expect(inMonth("2026-03-01", 2026, 1, 31)).toBe(false); // INTE februari (month=1)
     expect(inMonth("2026-03-01", 2026, 2, 31)).toBe(true);  // tillhör mars (month=2)
+  });
+});
+
+describe("currentPeriodMonth", () => {
+  it("payDay = 1: alltid innevarande kalendermånad", () => {
+    const d = currentPeriodMonth(1, new Date(2026, 5, 26));
+    expect(d.getMonth()).toBe(5); // juni
+    expect(d.getDate()).toBe(1);
+  });
+
+  it("payDay = 25, före lönedag: innevarande kalendermånad", () => {
+    expect(currentPeriodMonth(25, new Date(2026, 5, 10)).getMonth()).toBe(5); // juni
+  });
+
+  it("payDay = 25, på/efter lönedag: nästa kalendermånads etikett", () => {
+    expect(currentPeriodMonth(25, new Date(2026, 5, 25)).getMonth()).toBe(6); // juli
+    expect(currentPeriodMonth(25, new Date(2026, 5, 26)).getMonth()).toBe(6); // juli
+  });
+
+  it("rullar över årsskifte (december → januari)", () => {
+    const d = currentPeriodMonth(25, new Date(2026, 11, 28));
+    expect(d.getFullYear()).toBe(2027);
+    expect(d.getMonth()).toBe(0); // januari
   });
 });
 
@@ -559,6 +582,40 @@ describe("calcRemainingToSpend", () => {
     });
     const rem = calcRemainingToSpend(state, 2026, 2);
     expect(rem.model).toBe("plan");
+  });
+
+  it("räknar INTE med lån vars startdatum ligger i framtiden", () => {
+    // Lån som startar i augusti 2026 ska inte synas i juni-planen.
+    const state = makeState({
+      categories: [makeCategory({ id: "cat-1" })],
+      loans: [{
+        id: "l-1", name: "Bolån", type: "mortgage", lender: "", originalAmount: 2000000,
+        currentBalance: 1800000, interestRate: 3.5, monthlyPayment: 8000,
+        monthlyAmortization: 3000, monthlyFee: 0, ownerShare: 50, icon: "🏠", payments: [],
+        startDate: "2026-08-01",
+      }],
+    });
+    // Juni 2026 (month=5, 0-baserat) — före startdatum
+    const remJune = calcRemainingToSpend(state, 2026, 5);
+    expect(remJune.plan.plannedLoans).toBe(0);
+    // Augusti 2026 (month=7) — fr.o.m. startmånaden räknas lånet
+    const remAug = calcRemainingToSpend(state, 2026, 7);
+    expect(remAug.plan.plannedLoans).toBe(8000);
+  });
+
+  it("räknar INTE med lån vars slutdatum har passerat", () => {
+    const state = makeState({
+      categories: [makeCategory({ id: "cat-1" })],
+      loans: [{
+        id: "l-1", name: "Billån", type: "car", lender: "", originalAmount: 200000,
+        currentBalance: 50000, interestRate: 5, monthlyPayment: 4000,
+        monthlyAmortization: 0, monthlyFee: 0, ownerShare: 50, icon: "🚗", payments: [],
+        startDate: "2024-01-01", endDate: "2025-12-01",
+      }],
+    });
+    // Mars 2026 — efter slutdatum
+    const rem = calcRemainingToSpend(state, 2026, 2);
+    expect(rem.plan.plannedLoans).toBe(0);
   });
 
   it("använder faktisk/registrerad inkomst i plan-läge när återkommande inkomst saknas", () => {

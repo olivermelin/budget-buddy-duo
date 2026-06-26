@@ -1,4 +1,4 @@
-import { AppState, Transaction, Subscription } from "@/types/budget";
+import { AppState, Transaction, Subscription, Loan } from "@/types/budget";
 import { monthKey } from "./format";
 
 // Privata transaktioner ingår inte i hushållets uppdelning eller delade budget.
@@ -44,6 +44,22 @@ export interface MonthPlan {
   hasRecurring: boolean;        // Finns det mallar alls?
 }
 
+// Är lånet aktivt under den givna månaden? `month` är 0-baserad (som Date.getMonth()).
+// Datum parsas som "YYYY-MM-DD".split("-") för att undvika UTC-midnatt-skift (samma
+// konvention som inMonth()). Lån utan startdatum antas alltid aktiva (bakåtkompatibelt).
+function loanActiveInMonth(l: Loan, year: number, month: number): boolean {
+  const target = year * 12 + month;
+  if (l.startDate) {
+    const [sy, sm] = l.startDate.split("-").map(Number);
+    if (target < sy * 12 + (sm - 1)) return false;
+  }
+  if (l.endDate) {
+    const [ey, em] = l.endDate.split("-").map(Number);
+    if (target > ey * 12 + (em - 1)) return false;
+  }
+  return true;
+}
+
 export function buildMonthPlan(state: AppState, year: number, month: number): MonthPlan {
   const payDay = state.settings.payDay ?? 1;
   const fixedCats = new Set(state.categories.filter(c => c.isFixed).map(c => c.id));
@@ -78,7 +94,11 @@ export function buildMonthPlan(state: AppState, year: number, month: number): Mo
       : state.persons.reduce((s, p) => s + p.income, 0);
   }
 
-  const plannedLoans = state.loans.reduce((s, l) => s + l.monthlyPayment + (l.monthlyFee ?? 0), 0);
+  // Bara lån som är aktiva den planerade månaden räknas — ett lån vars startdatum
+  // ligger i framtiden (eller slutdatum redan passerat) ska inte belasta planen.
+  const plannedLoans = state.loans
+    .filter(l => loanActiveInMonth(l, year, month))
+    .reduce((s, l) => s + l.monthlyPayment + (l.monthlyFee ?? 0), 0);
   const plannedSavings = state.goals.reduce((s, g) => s + (g.monthlyContribution ?? 0), 0);
   const plannedFreeToSpend = Math.max(0, plannedIncome - plannedFixed - plannedLoans - plannedSavings);
   const remaining = plannedFreeToSpend - actualVariable;
@@ -155,6 +175,15 @@ export const inMonth = (iso: string, year: number, month: number, payDay = 1): b
   const start = new Date(year, month - 1, pd);
   const end = new Date(year, month, pd - 1);
   return txDate >= start && txDate <= end;
+};
+
+// Den 1:a i den månad vars löneperiod innehåller `ref` (lönedagsmedveten).
+// payDay > 1: när dagens datum nått lönedagen har den aktuella perioden redan
+// rullat över till nästa periods etikett (period M = lönedag i M-1 … lönedag-1 i M),
+// så vi skiftar en månad framåt. payDay <= 1: ren kalendermånad.
+export const currentPeriodMonth = (payDay = 1, ref = new Date()): Date => {
+  const shift = payDay > 1 && ref.getDate() >= payDay ? 1 : 0;
+  return new Date(ref.getFullYear(), ref.getMonth() + shift, 1);
 };
 
 export interface MonthSummary {

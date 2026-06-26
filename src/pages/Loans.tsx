@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useBudget } from "@/store/budget-store";
 import { useAuth } from "@/context/AuthContext";
 import { Loan, LoanType } from "@/types/budget";
@@ -109,6 +110,18 @@ export default function Loans() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [shockRate, setShockRate] = useState<number | null>(null);
 
+  // Djuplänk från Ekonomisk hälsa: ?tab=simulator&loanId=…&extra=…&lump=… öppnar
+  // simulatorn förifylld med ett föreslaget belopp.
+  const [searchParams] = useSearchParams();
+  const numParam = (key: string) => {
+    const n = Number(searchParams.get(key));
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+  const [tab, setTab] = useState(searchParams.get("tab") === "simulator" ? "simulator" : "loans");
+  const simInitialLoanId = searchParams.get("loanId") ?? undefined;
+  const simInitialExtra = numParam("extra");
+  const simInitialLump = numParam("lump");
+
   // Only show shared loans + the current user's own private loans
   const visibleLoans = useMemo(() => {
     const uid = user?.id;
@@ -154,7 +167,7 @@ export default function Loans() {
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="loans" className="space-y-6">
+      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList className="rounded-xl">
           <TabsTrigger value="loans" className="rounded-lg">Mina lån</TabsTrigger>
           <TabsTrigger value="simulator" className="rounded-lg">Simulera</TabsTrigger>
@@ -418,7 +431,12 @@ export default function Loans() {
         </TabsContent>
 
         <TabsContent value="simulator" className="mt-0 space-y-6">
-          <ExtraAmortizationSimulator loans={visibleLoans} />
+          <ExtraAmortizationSimulator
+            loans={visibleLoans}
+            initialLoanId={simInitialLoanId}
+            initialExtra={simInitialExtra}
+            initialLump={simInitialLump}
+          />
 
           {/* Ränteshock — vad händer med totala månadskostnaden om räntan ändras? */}
           {visibleLoans.length > 0 && (
@@ -768,8 +786,20 @@ function LoanFormDialog({
             </div>
           )}
 
-          {/* Löptid — döljs för bolån */}
-          {type !== "mortgage" && (
+          {/* Startdatum + löptid */}
+          {type === "mortgage" ? (
+            <div className="space-y-1">
+              <Label>Startdatum <span className="text-muted-foreground font-normal text-xs">(valfritt)</span></Label>
+              <MonthPicker value={startMonth} onChange={setStartMonth} />
+              {startMonth && (
+                <p className="text-xs text-muted-foreground">
+                  Lånet togs <span className="font-medium text-foreground">
+                    {new Date(`${startMonth}-01`).toLocaleDateString("sv-SE", { year: "numeric", month: "long" })}
+                  </span>
+                </p>
+              )}
+            </div>
+          ) : (
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
